@@ -291,6 +291,7 @@ void MemoryController::update()
 			                                    poppedBusPacket->data, dramsim_log));
 			writeDataCountdown.push_back(WL);
 		}
+		//test should be SET or Partial-SET
 
 		//
 		//update each bank's state based on the command that was just popped out of the command queue
