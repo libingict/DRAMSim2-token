@@ -94,6 +94,8 @@ unsigned JEDEC_DATA_BUS_BITS;
 unsigned TRANS_QUEUE_DEPTH;
 unsigned CMD_QUEUE_DEPTH;
 
+unsigned PARTIAL_QUEUE_DEPTH; //Add PartialSET queue depth; from ini file;libing
+
 //cycles within an epoch
 unsigned EPOCH_LENGTH;
 
