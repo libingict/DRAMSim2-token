@@ -21,6 +21,7 @@ PartialSETQueue::PartialSETQueue(vector<vector<BankState> > &states,
 		ERROR("== Error - Unknown queuing structure");
 		exit(0);
 	}
+
 	//create queue based on the structure we want
 	Entry1D actualQueue;
 	Entry2D perBankQueue = Entry2D();
@@ -51,6 +52,7 @@ PartialSETQueue::~PartialSETQueue() {
 		}
 	}
 }
+//double PartialSETQueue::RETENTION_TIME=1.0e9;
 void PartialSETQueue::enqueue(BusPacket *newBusPacket) {
 	unsigned rank = newBusPacket->rank;
 	unsigned bank = newBusPacket->bank;
@@ -225,4 +227,12 @@ void PartialSETQueue::emergePartialSET(unsigned rankID, unsigned bankID,
 	}
 
 }*/
+
+void PartialSETQueue::update()
+{
+	//do nothing since pop() is effectively update(),
+	//needed for SimulatorObject
+	//TODO: make CommandQueue not a SimulatorObject
+}
+
 

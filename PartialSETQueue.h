@@ -16,8 +16,9 @@
 using namespace std;
 
 namespace DRAMSim {
+
 class PartialSETQueue: public SimulatorObject {
-	ParitalSETQueue();
+	PartialSETQueue();
 	ostream &dramsim_log;
 public:
 	//Entry in PSqueue has two fields one is address, the other is time
@@ -25,23 +26,25 @@ public:
 		BusPacket *busPacket;
 		unsigned elaspedTime;
 	};
-    const double RETENTION_TIME=1.0e9;
+//    static double RETENTION_TIME;
 	//typedefs
 	typedef vector<entry*> Entry1D;
 	typedef vector<Entry1D> Entry2D;
 	typedef vector<Entry2D> Entry3D;
 
 	//functions
-	ParitalSETQueue(vector< vector<BankState> > &states, ostream &dramsim_log);
-	virtual ~ParitalSETQueue();
+	PartialSETQueue(vector< vector<BankState> > &states, ostream &dramsim_log);
+	virtual ~PartialSETQueue();
 	bool enqueue(BusPacket *newBusPacket);
 	void evict();
 	vector<BusPacket *> &getPSQueue(unsigned rank, unsigned bank);
 	bool idlePredictisLong(unsigned bank);
 	void evict(unsigned rank, unsigned bank);
-
+	void emergePartialSET(unsigned rank, unsigned bank,
+			unsigned index);
+	void update();
 	//bool isFull;
-	vector<vector<bool>> isFull;
+	vector< vector<bool> > isFull;
 
 	//fields
 
@@ -50,5 +53,6 @@ public:
 
 private:
 
+};
 }
-}
+#endif

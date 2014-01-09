@@ -48,6 +48,7 @@
 #include "PartialSETQueue.h"
 #include <map>
 
+#define RETAIN_TIME 4E+9/tCK
 using namespace std;
 
 namespace DRAMSim

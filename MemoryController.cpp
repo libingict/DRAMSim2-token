@@ -57,6 +57,7 @@ extern unsigned IDD6;
 extern unsigned IDD6L;
 extern unsigned IDD7;
 extern float Vdd; 
+//extern double RETENTION_TIME;
 
 using namespace DRAMSim;
 
@@ -153,12 +154,16 @@ void MemoryController::attachRanks(vector<Rank *> *ranks)
 //PSqueue update
 void MemoryController::updatePSQueue() {
 	//every cycle elapsed time increase one;
+	struct entry {
+		BusPacket *busPacket;
+		unsigned elaspedTime;
+	};
 	for (size_t i = 0; i < NUM_RANKS; i++) {
 		for (size_t j = 0; j < NUM_BANKS; j++) {
 			vector<entry *> &queue = psQueue.getPSQueue(i, j);
-			for(size_t s =0; s< queue.size();s++){
+			for(size_t s =0; s < queue.size();s++){
 				queue[s].elaspedTime++;
-				if (queue[s].elapsedTime==psQueue.RETENTION_TIME){
+				if (queue[s].elapsedTime==RETAIN_TIME){
 					psQueue.emergePartialSET(i,j,s);
 				}
 			}
