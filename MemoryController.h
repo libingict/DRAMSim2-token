@@ -45,6 +45,7 @@
 #include "BankState.h"
 #include "Rank.h"
 #include "CSVWriter.h"
+#include "PartialSETQueue.h"
 #include <map>
 
 using namespace std;
@@ -66,6 +67,7 @@ public:
 	void receiveFromBus(BusPacket *bpacket);
 	void attachRanks(vector<Rank *> *ranks);
 	void update();
+	void updatePSQueue();
 	void printStats(bool finalStats = false);
 	void resetStats(); 
 
@@ -82,6 +84,8 @@ private:
 	MemorySystem *parentMemorySystem;
 
 	CommandQueue commandQueue;
+	PartialSETQueue psQueue;	//add PartialSET queue
+
 	BusPacket *poppedBusPacket;
 	vector<unsigned>refreshCountdown;
 	vector<BusPacket *> writeDataToSend;

@@ -64,6 +64,7 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 		dramsim_log(dramsim_log_),
 		bankStates(NUM_RANKS, vector<BankState>(NUM_BANKS, dramsim_log)),
 		commandQueue(bankStates, dramsim_log_),
+		psQueue(bankStates, dramsim_log_),
 		poppedBusPacket(NULL),
 		csvOut(csvOut_),
 		totalTransactions(0),
@@ -149,6 +150,23 @@ void MemoryController::attachRanks(vector<Rank *> *ranks)
 	this->ranks = ranks;
 }
 
+//PSqueue update
+void MemoryController::updatePSQueue() {
+	//every cycle elapsed time increase one;
+	for (size_t i = 0; i < NUM_RANKS; i++) {
+		for (size_t j = 0; j < NUM_BANKS; j++) {
+			vector<entry *> &queue = psQueue.getPSQueue(i, j);
+			for(size_t s =0; s< queue.size();s++){
+				queue[s].elaspedTime++;
+				if (queue[s].elapsedTime==psQueue.RETENTION_TIME){
+					psQueue.emergePartialSET(i,j,s);
+				}
+			}
+			psQueue.evict(i,j);
+		}
+	}
+
+}
 //memory controller update
 void MemoryController::update()
 {
@@ -263,8 +281,9 @@ void MemoryController::update()
 	// else pop from command queue if it's not empty
 	if (refreshCountdown[refreshRank]==0)
 	{
-		commandQueue.needRefresh(refreshRank);
-		(*ranks)[refreshRank]->refreshWaiting = true;
+	//comment refresh out only count it down never refresh
+//		commandQueue.needRefresh(refreshRank);
+//		(*ranks)[refreshRank]->refreshWaiting = true;
 		refreshCountdown[refreshRank] =	 REFRESH_PERIOD/tCK;
 		refreshRank++;
 		if (refreshRank == NUM_RANKS)
@@ -275,7 +294,7 @@ void MemoryController::update()
 	//if a rank is powered down, make sure we power it up in time for a refresh
 	else if (powerDown[refreshRank] && refreshCountdown[refreshRank] <= tXP)
 	{
-		(*ranks)[refreshRank]->refreshWaiting = true;
+//		(*ranks)[refreshRank]->refreshWaiting = true;
 	}
 
 	//pass a pointer to a poppedBusPacket

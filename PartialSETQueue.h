@@ -8,6 +8,7 @@
 
 #include "BusPacket.h"
 #include "BankState.h"
+#include "CommandQueue.h"
 #include "Transaction.h"
 #include "SystemConfiguration.h"
 #include "SimulatorObject.h"
@@ -24,7 +25,7 @@ public:
 		BusPacket *busPacket;
 		unsigned elaspedTime;
 	};
-
+    const double RETENTION_TIME=1.0e9;
 	//typedefs
 	typedef vector<entry*> Entry1D;
 	typedef vector<Entry1D> Entry2D;
@@ -35,6 +36,12 @@ public:
 	virtual ~ParitalSETQueue();
 	bool enqueue(BusPacket *newBusPacket);
 	void evict();
+	vector<BusPacket *> &getPSQueue(unsigned rank, unsigned bank);
+	bool idlePredictisLong(unsigned bank);
+	void evict(unsigned rank, unsigned bank);
+
+	//bool isFull;
+	vector<vector<bool>> isFull;
 
 	//fields
 

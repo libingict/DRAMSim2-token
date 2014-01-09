@@ -555,12 +555,6 @@ bool CommandQueue::pop(BusPacket **busPacket)
 }
 
 //check if a rank/bank queue has room for a certain number of bus packets
-bool CommandQueue::hasRoomFor(unsigned numberToEnqueue, unsigned rank, unsigned bank)
-{
-	vector<BusPacket *> &queue = getCommandQueue(rank, bank); 
-	return (CMD_QUEUE_DEPTH - queue.size() >= numberToEnqueue);
-}
-
 //prints the contents of the command queue
 void CommandQueue::print()
 {
@@ -717,6 +711,13 @@ void CommandQueue::needRefresh(unsigned rank)
 	refreshWaiting = true;
 	refreshRank = rank;
 }
+
+bool CommandQueue::hasRoomFor(unsigned numberToEnqueue, unsigned rank, unsigned bank)
+{
+	vector<BusPacket *> &queue = getCommandQueue(rank, bank);
+	return (CMD_QUEUE_DEPTH - queue.size() >= numberToEnqueue);
+}
+
 
 void CommandQueue::nextRankAndBank(unsigned &rank, unsigned &bank)
 {
