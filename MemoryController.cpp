@@ -65,7 +65,7 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 		dramsim_log(dramsim_log_),
 		bankStates(NUM_RANKS, vector<BankState>(NUM_BANKS, dramsim_log)),
 		commandQueue(bankStates, dramsim_log_),
-		psQueue(bankStates, dramsim_log_),
+		psQueue(bankStates, commandQueue, dramsim_log_),
 		poppedBusPacket(NULL),
 		csvOut(csvOut_),
 		totalTransactions(0),
@@ -154,22 +154,18 @@ void MemoryController::attachRanks(vector<Rank *> *ranks)
 //PSqueue update
 void MemoryController::updatePSQueue() {
 	//every cycle elapsed time increase one;
-	struct entry {
-		BusPacket *busPacket;
-		unsigned elaspedTime;
-	};
-	for (size_t i = 0; i < NUM_RANKS; i++) {
-		for (size_t j = 0; j < NUM_BANKS; j++) {
-			vector<entry *> &queue = psQueue.getPSQueue(i, j);
+/*	for (size_t r = 0; r < NUM_RANKS; i++) {
+		for (size_t b = 0; b < NUM_BANKS; j++) {
+			vector<PartialSETQueue::entry *> &queue= psQueue.getPSQueue(r, b);
 			for(size_t s =0; s < queue.size();s++){
-				queue[s].elaspedTime++;
-				if (queue[s].elapsedTime==RETAIN_TIME){
-					psQueue.emergePartialSET(i,j,s);
+				queue[s]->elapsedTime++;
+				if (queue[s]->elapsedTime==RETAIN_TIME){
+					psQueue.emergePartialSET(r,b,s);
 				}
 			}
 			psQueue.evict(i,j);
 		}
-	}
+	}*/
 
 }
 //memory controller update
