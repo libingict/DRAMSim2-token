@@ -53,6 +53,9 @@ public:
 	CommandQueue &cmdQueue;
 private:
 	static const unsigned PARTIAL_QUEUE_DEPTH = 128;
+	vector < vector<bool> > idle;
+	vector < vector<unsigned> > begin;
+	vector < vector<unsigned> > duration;;
 };
 }
 #endif

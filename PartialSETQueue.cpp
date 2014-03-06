@@ -13,6 +13,7 @@ using namespace DRAMSim;
 PartialSETQueue::PartialSETQueue(vector<vector<BankState> > &states,
 		CommandQueue &cmdqueue, ostream &dramsim_log_) :
 		bankStates(states), cmdQueue(cmdqueue), dramsim_log(dramsim_log_) {
+
 	//use numBankQueus below to create queue structure
 	size_t numBankqueues;
 	if (queuingStructure == PerRank) {
@@ -25,8 +26,10 @@ PartialSETQueue::PartialSETQueue(vector<vector<BankState> > &states,
 	}
 	currentClockCycle = 0;
 	//CommandQueue::CommandQueue& cmdQueue=cmdqueue;
-	isFull = vector < vector<bool>
-			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
+	isFull = vector < vector<bool> > (NUM_RANKS, vector<bool>(NUM_BANKS, false));
+	idle =  vector < vector<bool> > (NUM_RANKS, vector<bool>(NUM_BANKS, false));
+	begin = vector < vector<unsigned> >(NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
+	duration = vector < vector<unsigned> >(NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
 	//create queue based on the structure we want
 	Entry1D actualQueue;
 	Entry2D perBankQueue = Entry2D();
@@ -39,6 +42,11 @@ PartialSETQueue::PartialSETQueue(vector<vector<BankState> > &states,
 		for (size_t bank = 0; bank < numBankqueues; bank++) {
 			actualQueue = Entry1D();
 			perBankQueue.push_back(actualQueue);
+			idleBank = BankD();
+			idleRank.push_back(idleBank);
+		}
+		for (size_t bank = 0; bank < NUM_BANKS; bank++) {
+
 			idleBank = BankD();
 			idleRank.push_back(idleBank);
 		}
@@ -57,7 +65,6 @@ PartialSETQueue::~PartialSETQueue() {
 		for (size_t b = 0; b < bankMax; b++) {
 			for (size_t i = 0; i < PSqueues[r][b].size(); ++i) {
 				delete (PSqueues[r][b][i]);
-//				delete (IdleTable[r][b][i]);
 			}
 			PSqueues[r][b].clear();
 			IdleTable[r][b].clear();
@@ -214,15 +221,28 @@ bool PartialSETQueue::enqueue(BusPacket *bspacket) {
 
  }
  */
-vodi PartialSETQueue::getIdleInterval() {
+void PartialSETQueue::getIdleInterval() {
 	unsigned r = NUM_RANKS;
 	unsigned b = NUM_BANKS;
-	vector < vector<unsigned> > idle = (NUM_RANKS, vector<unsigned>(NUM_BANKS,
-			0));
-	for (int i = 0; i < r; ++i) {
-		for (int j = 0; j < b; ++j) {
-			if (states[i][j].currentBankState == Idle) {
-				idle[i][j] = currentClockCycle;
+	for (unsigned i = 0; i < r; ++i) {
+		for (unsigned j = 0; j < b; ++j) {
+			if (bankStates[i][j].currentBankState == Idle || PowerDown) {
+				if (idle[i][j] = false) {
+					idle[i][j] = true;
+					begin[i][j] = currentClockCycle;
+				}
+			} else {
+				if (idle[i][j] = true) {
+					duration[i][j] = begin[i][j] - currentClockCycle;
+
+					if ((duration[i][j] >= WRITE_AUTOPRE_DELAY
+							&& rowBufferPolicy == ClosePage)
+							|| (duration[i][j] >= WRITE_TO_PRE_DELAY
+									&& rowBufferPolicy == OpenPage)) {
+						IdleTable[i][j].push_back(true);
+					} else
+						IdleTable[i][j].push_back(false);
+				}
 			}
 		}
 	}

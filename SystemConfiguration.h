@@ -133,6 +133,18 @@ extern std::string SCHEDULING_POLICY;
 extern std::string ADDRESS_MAPPING_SCHEME;
 extern std::string QUEUING_STRUCTURE;
 
+/*
+added for libing Partial-SET
+SET: the write latency for SET, 8x to DRAM tWR
+Partial-SET: short latency, equal to the DRAM tWR
+
+*/
+#define PartialSET tWR
+#define SET (tWR*8)
+#ifdef PARTIAL
+#define WRITE_TO_PRE_DELAY (WL+BL/2+SET)
+#define WRITE_AUTOPRE_DELAY (WL+BL/2+SET+tRP)
+#endif
 enum TraceType
 {
 	k6,

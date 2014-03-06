@@ -152,9 +152,9 @@ void MemoryController::attachRanks(vector<Rank *> *ranks)
 }
 
 //PSqueue update
-void MemoryController::updatePSQueue() {
+/*void MemoryController::updatePSQueue() {
 	//every cycle elapsed time increase one;
-/*	for (size_t r = 0; r < NUM_RANKS; i++) {
+	for (size_t r = 0; r < NUM_RANKS; i++) {
 		for (size_t b = 0; b < NUM_BANKS; j++) {
 			vector<PartialSETQueue::entry *> &queue= psQueue.getPSQueue(r, b);
 			for(size_t s =0; s < queue.size();s++){
@@ -165,9 +165,10 @@ void MemoryController::updatePSQueue() {
 			}
 			psQueue.evict(i,j);
 		}
-	}*/
+	}
+	psQueue.step();
 
-}
+}*/
 //memory controller update
 void MemoryController::update()
 {
