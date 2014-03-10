@@ -5,12 +5,8 @@
  *      Author: libing
  */
 #include "Entry.h"
-Entry::Entry(){
+Entry::Entry(BusPacket *buspacket) :
+		busPacket(buspacket), elapsedTime(0) {
 
 }
-
-
-
-
-
 

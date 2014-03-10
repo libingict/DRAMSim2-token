@@ -96,7 +96,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 	case READ:
 		//make sure a read is allowed
 		if (bankStates[packet->bank].currentBankState != RowActive ||
-		        currentClockCycle < bankStates[packet->bank].nextRead ||
+//		        currentClockCycle < bankStates[packet->bank].nextRead ||
 		        packet->row != bankStates[packet->bank].openRowAddress)
 		{
 			packet->print();

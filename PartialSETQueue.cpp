@@ -26,10 +26,13 @@ PartialSETQueue::PartialSETQueue(vector<vector<BankState> > &states,
 	}
 	currentClockCycle = 0;
 	//CommandQueue::CommandQueue& cmdQueue=cmdqueue;
-	isFull = vector < vector<bool> > (NUM_RANKS, vector<bool>(NUM_BANKS, false));
-	idle =  vector < vector<bool> > (NUM_RANKS, vector<bool>(NUM_BANKS, false));
-	begin = vector < vector<unsigned> >(NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
-	duration = vector < vector<unsigned> >(NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
+	isFull = vector < vector<bool>
+			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
+	idle = vector < vector<bool> > (NUM_RANKS, vector<bool>(NUM_BANKS, false));
+	begin = vector < vector<unsigned>
+			> (NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
+	duration = vector < vector<unsigned>
+			> (NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
 	//create queue based on the structure we want
 	Entry1D actualQueue;
 	Entry2D perBankQueue = Entry2D();
@@ -79,8 +82,7 @@ bool PartialSETQueue::enqueue(BusPacket *bspacket) {
 		ERROR("== Error - Enqueued busPacket should be write");
 		return false;
 	}
-	Entry* newEntry;
-	newEntry->busPacket = bspacket;
+	Entry* newEntry= new Entry(bspacket);
 	newEntry->busPacket->busPacketType = PartialSET;
 	newEntry->elapsedTime = 0;
 	Entry1D::iterator iter;
@@ -129,98 +131,105 @@ bool PartialSETQueue::enqueue(BusPacket *bspacket) {
 /*bool PartialSETQueue::idlePredictisLong(unsigned bank) {
  return true;
  }*/
-/*
- //two conditions.1, the queue is full; 2, the elaspedTime of oldest entry reaches the threshold;
- //then issue a SET from PSqueue bank, insert the issued cmd to cmdqueue.
- void PartialSETQueue::evict(unsigned rank, unsigned bank) {
+//two conditions.1, the queue is full; 2, the elaspedTime of oldest entry reaches the threshold;
+//then issue a SET from PSqueue bank, insert the issued cmd to cmdqueue.
+/*void PartialSETQueue::evict(unsigned rank, unsigned bank) {
 
- if (bankStates[rank][bank].currentBankState == Idle) {
- vector<BusPacket *> &cmdqueue = CommandQueue::getCommandQueue(rank,
- bank);
- if (cmdqueue.size() == 0) {
- if (idlePredictisLong(bank) || isFull[rank][bank]) {
- unsigned col = PSqueues[rank][bank][0].busPacket->column;
- unsigned row = PSqueues[rank][bank][0].busPacket->row;
- uint64_t phyAddr =
- PSqueues[rank][bank][0].busPacket->physicsAddress;
- BusPacket *SETcommand = new BusPacket(FullSET, phyAddr, col,
- row, bank, rank, 0, dramsim_log);
- //todo:insert the busPacket to cmdqueue and issue the busPacket to memory
- BusPacket *ACTcommand = new BusPacket(ACTIVATE, phyAddr, col,
- row, bank, rank, 0, dramsim_log);
- cmdqueue.push_back(ACTcommand);
- cmdqueue.push_back(SETcommand);
+	if (bankStates[rank][bank].currentBankState == Idle) {
+		vector<BusPacket *> &cmdqueue = CommandQueue::getCommandQueue(rank,
+				bank);
+		if (cmdqueue.size() == 0) {
+			if (idlePredictisLong(bank) || isFull[rank][bank]) {
+				unsigned col = PSqueues[rank][bank][0].busPacket->column;
+				unsigned row = PSqueues[rank][bank][0].busPacket->row;
+				uint64_t phyAddr =
+						PSqueues[rank][bank][0].busPacket->physicsAddress;
+				BusPacket *SETcommand = new BusPacket(FullSET, phyAddr, col,
+						row, bank, rank, 0, dramsim_log);
+				//todo:insert the busPacket to cmdqueue and issue the busPacket to memory
+				BusPacket *ACTcommand = new BusPacket(ACTIVATE, phyAddr, col,
+						row, bank, rank, 0, dramsim_log);
+				cmdqueue.push_back(ACTcommand);
+				cmdqueue.push_back(SETcommand);
 
- PSqueues[rank][bank].erase(PSqueues[rank][bank].begin() + 0); //delete the entry with the largest elapseTime
- }
- }
- }
+				PSqueues[rank][bank].erase(PSqueues[rank][bank].begin() + 0); //delete the entry with the largest elapseTime
+			}
+		}
+	}
 
- }
- //the same address entry is SET from command queue, the relative entry in PSQueue should be deleted
- void release(BusPacket *busPacket) {
- unsigned rank = busPacket->rank;
- unsigned bank = busPacket->bank;
- if (queuingStructure == PerRank) {
- if (!PSqueues[rank][0].empty()) {
- for (unsigned i = 0; i < PSqueues[rank][0].size(); i++) {
- if (PSqueues[rank][0][i].busPacket->physicsAddress
- == newBusPacket->physicalAddress)
- break;
- }
- PSqueues[rank][0].erase(PSqueues[rank][0].begin() + i);
- }
- } else if (queuingStructure == PerRankPerBank) {
- if (!PSqueues[rank][bank].empty()) {
- for (unsigned i = 0; i < PSqueues[rank][bank].size(); i++) {
- if (PSqueues[rank][bank][i].busPacket->physicsAddress
- == newBusPacket->physicalAddress)
- break;
- }
- PSqueues[rank][bank].erase(PSqueues[rank][bank].begin() + i);
- }
- }
- }
- vector<entry *> &PartialSETQueue::getPSQueue(unsigned rank, unsigned bank) {
- if (queuingStructure == PerRankPerBank) {
- return PSqueues[rank][bank];
- } else if (queuingStructure == PerRank) {
- return PSqueues[rank][0];
- } else {
- ERROR("Unknown queue structure");
- abort();
- }
- }
- void PartialSETQueue::emergePartialSET(unsigned rankID, unsigned bankID,
- unsigned index) {
- unsigned rank = rankID;
- unsigned bank;
- if (queuingStructure == PerRankPerBank) {
- bank = bankID;
- } else if (queuingStructure == PerRank) {
- bank = 0;
- } else {
- ERROR("Unknown queue structure");
- abort();
- }
- enrty* newEntry = PSqueues[rank][bank][index];
- newEntry->elapsedTime = 0;
- unsigned col = PSqueues[rank][bank][index].busPacket->column;
- unsigned row = PSqueues[rank][bank][index].busPacket->row;
- uint64_t phyAddr = PSqueues[rank][bank][index].busPacket->physicsAddress;
- BusPacket *Writecommand = new BusPacket(PartialSET, phyAddr, col, row, bank,
- r, 0, dramsim_log);
- //todo:insert the busPacket to cmdqueue and issue the busPacket to memory
- BusPacket *ACTcommand = new BusPacket(ACTIVATE, phyAddr, col, row, bank, r,
- 0, dramsim_log);
- cmdqueue.enqueue(ACTcommand);
- cmdqueue.enqueue(Writecommand);
+}*/
+//the same address entry is SET from command queue, the relative entry in PSQueue should be deleted
+void PartialSETQueue::release(BusPacket *bspacket) {
+	unsigned rank = bspacket->rank;
+	unsigned bank = bspacket->bank;
+	Entry1D::iterator iter;
+	if (queuingStructure == PerRank) {
+		if (!PSqueues[rank][0].empty()) {
+			for (iter = PSqueues[rank][0].begin(); iter != PSqueues[rank][0].end();
+					++iter) {
+				Entry *tmp = *iter;
+				if (tmp->busPacket->physicalAddress
+						== bspacket->physicalAddress)
+					break;
+			}
+			PSqueues[rank][0].erase(iter);
+		}
+	} else if (queuingStructure == PerRankPerBank) {
+		if (!PSqueues[rank][bank].empty()) {
+			for (iter = PSqueues[rank][0].begin(); iter != PSqueues[rank][0].end();
+					++iter) {
+				Entry *tmp = *iter;
+				if (tmp->busPacket->physicalAddress
+						== bspacket->physicalAddress)
+					break;
+			}
+			PSqueues[rank][bank].erase(iter);
+		}
+	}
+}
 
- PSqueues[rank][bank].erase(PSqueues[rank][bank].begin() + index);
- PSqueues[rank][bank].push_back(newEntry);
+/*vector<entry *> &PartialSETQueue::getPSQueue(unsigned rank, unsigned bank) {
+	if (queuingStructure == PerRankPerBank) {
+		return PSqueues[rank][bank];
+	} else if (queuingStructure == PerRank) {
+		return PSqueues[rank][0];
+	} else {
+		ERROR("Unknown queue structure");
+		abort();
+	}
+}*/
 
- }
- */
+/*void PartialSETQueue::emergePartialSET() {
+	unsigned rank = NUM_RANKS;
+
+	if (queuingStructure == PerRankPerBank) {
+		bank = NUM_BANKS;
+	} else if (queuingStructure == PerRank) {
+		bank = 0;
+	} else {
+		ERROR("Unknown queue structure");
+		abort();
+	}
+	Entry* newentry;
+	Entry1D::iteration iter;
+	for(iter=PSqueues[rank][bank].begin();)
+
+	unsigned col = PSqueues[rank][bank][index].busPacket->column;
+	unsigned row = PSqueues[rank][bank][index].busPacket->row;
+	uint64_t phyAddr = PSqueues[rank][bank][index].busPacket->physicsAddress;
+	BusPacket *Writecommand = new BusPacket(PartialSET, phyAddr, col, row, bank,
+			r, 0, dramsim_log);
+	//todo:insert the busPacket to cmdqueue and issue the busPacket to memory
+	BusPacket *ACTcommand = new BusPacket(ACTIVATE, phyAddr, col, row, bank, r,
+			0, dramsim_log);
+	cmdqueue.enqueue(ACTcommand);
+	cmdqueue.enqueue(Writecommand);
+
+	PSqueues[rank][bank].erase(PSqueues[rank][bank].begin() + index);
+	PSqueues[rank][bank].push_back(newEntry);
+
+}*/
+
 void PartialSETQueue::getIdleInterval() {
 	unsigned r = NUM_RANKS;
 	unsigned b = NUM_BANKS;
@@ -233,7 +242,7 @@ void PartialSETQueue::getIdleInterval() {
 				}
 			} else {
 				if (idle[i][j] = true) {
-					duration[i][j] = begin[i][j] - currentClockCycle;
+					duration[i][j] = currentClockCycle -  begin[i][j];
 
 					if ((duration[i][j] >= WRITE_AUTOPRE_DELAY
 							&& rowBufferPolicy == ClosePage)
@@ -242,6 +251,7 @@ void PartialSETQueue::getIdleInterval() {
 						IdleTable[i][j].push_back(true);
 					} else
 						IdleTable[i][j].push_back(false);
+				idle[i][j] = false;
 				}
 			}
 		}

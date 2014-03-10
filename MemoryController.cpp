@@ -284,7 +284,7 @@ void MemoryController::update()
 	if (refreshCountdown[refreshRank]==0)
 	{
 	//comment refresh out only count it down never refresh
-//		commandQueue.needRefresh(refreshRank);
+		commandQueue.needRefresh(refreshRank);
 //		(*ranks)[refreshRank]->refreshWaiting = true;
 		refreshCountdown[refreshRank] =	 REFRESH_PERIOD/tCK;
 		refreshRank++;
@@ -395,7 +395,7 @@ void MemoryController::update()
 							bankStates[rank][bank].nextPrecharge);
 					bankStates[rank][bank].lastCommand = WRITE;
 				}
-
+				bankStates[rank][bank].starttime = currentClockCycle;
 
 				//add energy to account for total
 				if (DEBUG_POWER)

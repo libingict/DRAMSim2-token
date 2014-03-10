@@ -18,14 +18,13 @@ using namespace std;
 
 namespace DRAMSim {
 
-
 class PartialSETQueue: public SimulatorObject {
 	PartialSETQueue();
 	ostream &dramsim_log;
 public:
 //    static double RETENTION_TIME;
 	//typedefs
-	typedef vector< Entry* > Entry1D;
+	typedef vector<Entry*> Entry1D;
 	typedef vector<Entry1D> Entry2D;
 	typedef vector<Entry2D> Entry3D;
 
@@ -35,17 +34,18 @@ public:
 	typedef vector<BankD> RankD;
 	typedef vector<RankD> Table;
 
-	PartialSETQueue(vector< vector<BankState> > &states, CommandQueue &cmdqueue, ostream &dramsim_log);
+	PartialSETQueue(vector<vector<BankState> > &states, CommandQueue &cmdqueue,
+			ostream &dramsim_log);
 	virtual ~PartialSETQueue();
 	bool enqueue(BusPacket *newBusPacket);
+	void release(BusPacket *newBusPacket);
 //	vector<Entry *> &getPSQueue(unsigned rank, unsigned bank);
 //	bool idlePredictisLong(unsigned rank,unsigned bank);
-/*	void evict(unsigned rank, unsigned bank);
-	void emergePartialSET(unsigned rank, unsigned bank,
-			unsigned index);*/
+	void evict(unsigned rank, unsigned bank);
+//	void emergePartialSET();
 	void getIdleInterval(); //get the bank interval is long or short;
 	void update();
-	vector< vector<bool> > isFull;
+	vector<vector<bool> > isFull;
 	//fields
 	Entry3D PSqueues; // 3D array of entry pointers
 	Table IdleTable;
@@ -53,9 +53,10 @@ public:
 	CommandQueue &cmdQueue;
 private:
 	static const unsigned PARTIAL_QUEUE_DEPTH = 128;
-	vector < vector<bool> > idle;
-	vector < vector<unsigned> > begin;
-	vector < vector<unsigned> > duration;;
+	vector<vector<bool> > idle;
+	vector<vector<unsigned> > begin;
+	vector<vector<unsigned> > duration;
+	;
 };
 }
 #endif

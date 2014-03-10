@@ -72,6 +72,7 @@ public:
 
 	BusPacketType lastCommand;
 	unsigned stateChangeCountdown;
+	uint64_t starttime;
 
 	//Functions
 	BankState(ostream &dramsim_log_);

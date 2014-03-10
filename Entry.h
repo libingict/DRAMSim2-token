@@ -10,17 +10,18 @@
 
 #include"BusPacket.h"
 using namespace DRAMSim;
-enum PartialPacketType
+/*enum PartialPacketType
 {
 	PartialSET, //Write with short WR
 	FullSET   //Write with long WR
-};
+};*/
 class Entry{
 public:
 	BusPacket *busPacket;
 	unsigned elapsedTime;
+	Entry(BusPacket *bspacket);
 
-	Entry();
+//	Entry(const Entry&);
 };
 
 

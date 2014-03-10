@@ -74,6 +74,8 @@ public:
 	void print();
 	void update(); //SimulatorObject requirement
 	vector<BusPacket *> &getCommandQueue(unsigned rank, unsigned bank);
+//libing
+	bool cancelWrite(BusPacket *busPacket);
 
 	//fields
 	
@@ -95,6 +97,8 @@ private:
 	vector< vector<unsigned> > rowAccessCounters;
 
 	bool sendAct;
+	static const double Threshold = 0.75;
+
 };
 }
 

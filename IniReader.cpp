@@ -117,6 +117,7 @@ bool DEBUG_BANKS;
 bool DEBUG_POWER;
 bool USE_LOW_POWER;
 bool VIS_FILE_OUTPUT;
+bool WRITECANCEL;
 
 bool VERIFICATION_OUTPUT;
 
@@ -200,6 +201,7 @@ static ConfigMap configMap[] =
 	DEFINE_BOOL_PARAM(DEBUG_POWER,SYS_PARAM),
 	DEFINE_BOOL_PARAM(VIS_FILE_OUTPUT,SYS_PARAM),
 	DEFINE_BOOL_PARAM(VERIFICATION_OUTPUT,SYS_PARAM),
+	DEFINE_BOOL_PARAM(WRITECANCEL,SYS_PARAM),
 	{"", NULL, UINT, SYS_PARAM, false} // tracer value to signify end of list; if you delete it, epic fail will result
 };
 
