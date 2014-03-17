@@ -61,6 +61,8 @@ CommandQueue::CommandQueue(vector<vector<BankState> > &states,
 	//vector of counters used to ensure rows don't stay open too long
 	rowAccessCounters = vector < vector<unsigned>
 			> (NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
+	canceledWrite = vector < vector<unsigned>
+			> (NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
 
 	//create queue based on the structure we want
 	BusPacket1D actualQueue;
@@ -371,12 +373,15 @@ bool CommandQueue::pop(BusPacket **busPacket) {
 							bool dependencyFound = false;
 							for (size_t j = 0; j < i; j++) {
 								BusPacket *prevPacket = queue[j];
-								if (prevPacket->busPacketType != ACTIVATE
-										&& prevPacket->bank == packet->bank
+								if (prevPacket->bank == packet->bank
 										&& prevPacket->row == packet->row) {
-									dependencyFound = true;
-									break;
+									if (prevPacket->busPacketType != ACTIVATE) {
+										dependencyFound = true;
+										break;
+									}
+
 								}
+
 							}
 							if (dependencyFound)
 								continue;
@@ -385,7 +390,7 @@ bool CommandQueue::pop(BusPacket **busPacket) {
 
 							//if the bus packet before is an activate, that is the act that was
 							//	paired with the column access we are removing, so we have to remove
-							//	that activate as well (check i>0 because if i==0 then theres nothing before it)
+							//	that activate as well (check i>0 because if i==0 then there's nothing before it)
 							if (i > 0
 									&& queue[i - 1]->busPacketType
 											== ACTIVATE) {
@@ -493,40 +498,49 @@ bool CommandQueue::pop(BusPacket **busPacket) {
 	if ((*busPacket)->busPacketType == ACTIVATE) {
 		tFAWCountdown[(*busPacket)->rank].push_back(tFAW);
 	}
-	if ((*busPacket)->busPacketType == WRITE || WRITE_P) {
-		bankStates[(*busPacket)->rank][(*busPacket)->bank].starttime =
-				currentClockCycle;
-	}
+	/*	if ((*busPacket)->busPacketType == WRITE || WRITE_P) {
+	 bankStates[(*busPacket)->rank][(*busPacket)->bank].starttime =
+	 currentClockCycle;
+	 }*/
 	return true;
 }
 
 //check if a rank/bank queue has room for a certain number of bus packets
 //prints the contents of the command queue
 void CommandQueue::print() {
-	if (queuingStructure == PerRank) {
-		PRINT(endl << "== Printing Per Rank Queue");
-		for (size_t i = 0; i < NUM_RANKS; i++) {
-			PRINT(" = Rank " << i << "  size : " << queues[i][0].size());
-			for (size_t j = 0; j < queues[i][0].size(); j++) {
-				PRINTN("    "<< j << "]");
-				queues[i][0][j]->print();
-			}
-		}
-	} else if (queuingStructure == PerRankPerBank) {
-		PRINT("\n== Printing Per Rank, Per Bank Queue");
+	/*	if (queuingStructure == PerRank) {
+	 PRINT(endl << "== Printing Per Rank Queue");
+	 for (size_t i = 0; i < NUM_RANKS; i++) {
+	 PRINT(" = Rank " << i << "  size : " << queues[i][0].size());
+	 for (size_t j = 0; j < queues[i][0].size(); j++) {
+	 PRINTN("    "<< j << "]");
+	 queues[i][0][j]->print();
+	 }
+	 }
+	 } else if (queuingStructure == PerRankPerBank) {
+	 PRINT("\n== Printing Per Rank, Per Bank Queue");
 
-		for (size_t i = 0; i < NUM_RANKS; i++) {
-			PRINT(" = Rank " << i);
-			for (size_t j = 0; j < NUM_BANKS; j++) {
-				PRINT("    Bank "<< j << "   size : " << queues[i][j].size());
+	 for (size_t i = 0; i < NUM_RANKS; i++) {
+	 PRINT(" = Rank " << i);
+	 for (size_t j = 0; j < NUM_BANKS; j++) {
+	 PRINT("    Bank "<< j << "   size : " << queues[i][j].size());
 
-				for (size_t k = 0; k < queues[i][j].size(); k++) {
-					PRINTN("       " << k << "]");
-					queues[i][j][k]->print();
-				}
-			}
+	 for (size_t k = 0; k < queues[i][j].size(); k++) {
+	 PRINTN("       " << k << "]");
+	 queues[i][j][k]->print();
+	 }
+	 }
+	 }
+	 }*/
+	unsigned total = 0;
+	for (unsigned r = 0; r != NUM_RANKS; r++) {
+		for (unsigned b = 0; b != NUM_BANKS; b++) {
+			PRINT(
+					"Canceled Write Rank["<<r<<"] Bank["<<b<<"] is "<<canceledWrite[r][b]);
+			total += canceledWrite[r][b];
 		}
 	}
+	PRINT("Total Canceled Write is "<<total);
 }
 
 /** 
@@ -590,18 +604,17 @@ bool CommandQueue::isIssuable(BusPacket *busPacket) {
 						== bankStates[busPacket->rank][busPacket->bank].openRowAddress
 				&& rowAccessCounters[busPacket->rank][busPacket->bank]
 						< TOTAL_ROW_ACCESSES) {
-			if (WRITECANCEL) {
-				if (cancelWrite(busPacket)) {
-					return true;
-				}
-			}
+/*			if (WRITECANCEL) {
+				cancelWrite(busPacket);
+			}*/
 			if (currentClockCycle
 					>= bankStates[busPacket->rank][busPacket->bank].nextRead) {
+
+//				cout<<" Issuable \n";
 				return true;
 			}
-
-		} else
-			return false;
+		}
+		return false;
 		break;
 	case PRECHARGE:
 		if (bankStates[busPacket->rank][busPacket->bank].currentBankState
@@ -678,21 +691,22 @@ void CommandQueue::nextRankAndBank(unsigned &rank, unsigned &bank) {
 
 }
 
-bool CommandQueue::cancelWrite(BusPacket *busPacket) {
+/*void CommandQueue::cancelWrite(BusPacket *busPacket) {
 	double completeFraction;
-	if (bankStates[busPacket->rank][busPacket->bank].lastCommand == WRITE
-			|| WRITE_P) {
-		completeFraction =
-				(currentClockCycle
-						- bankStates[busPacket->rank][busPacket->bank].starttime)
-						/ (bankStates[busPacket->rank][busPacket->bank].nextRead
-								- bankStates[busPacket->rank][busPacket->bank].starttime);
-		if (completeFraction >= Threshold) {
-			return false;
-		} else {
-			bankStates[busPacket->rank][busPacket->bank].nextRead =
-					currentClockCycle;
-			/*			vector<BusPacket*> &queue = getCommandQueue(busPacket->rank,
+		if(bankStates[busPacket->rank][busPacket->bank].lastCommand == ACTIVATE){
+
+	 }
+	if ((bankStates[busPacket->rank][busPacket->bank].lastCommand == WRITE)
+			|| (bankStates[busPacket->rank][busPacket->bank].lastCommand
+					== WRITE_P)) {
+		completeFraction = (currentClockCycle
+				- bankStates[busPacket->rank][busPacket->bank].starttime)
+				/ (bankStates[busPacket->rank][busPacket->bank].nextRead);
+		if (completeFraction < Threshold) {
+//		cout << " bankStates["<<busPacket->rank<<"] [" << busPacket->bank<< "].nextRead " << bankStates[busPacket->rank][busPacket->bank].nextRead ;
+					bankStates[busPacket->rank][busPacket->bank].nextRead =
+			 currentClockCycle;
+						vector<BusPacket*> &queue = getCommandQueue(busPacket->rank,
 			 busPacket->bank);
 			 BusPacket *activeCmd = new BusPacket(ACTIVATE,
 			 busPacket->physicalAddress, busPacket->row,
@@ -702,16 +716,31 @@ bool CommandQueue::cancelWrite(BusPacket *busPacket) {
 			 busPacket->row, busPacket->column, busPacket->rank,
 			 busPacket->bank, busPacket->data, dramsim_log);
 			 queue.push_back(activeCmd);
-			 queue.push_back(cmd);*/
-			cout << " currentClockcycle is " << currentClockCycle
-					<< " start time is "
+			 queue.push_back(cmd);
+//			cout << " currentClockcycle is " << currentClockCycle
+
+			 if(currentClockCycle
+			 < bankStates[busPacket->rank][busPacket->bank].nextRead){
+
+
+			canceledWrite[busPacket->rank][busPacket->bank]++;
+			bankStates[busPacket->rank][busPacket->bank].print();
+			cout << " start time is "
 					<< bankStates[busPacket->rank][busPacket->bank].starttime
-					<< " completeFraction is " << completeFraction
-					<< " cancel write\n ";
-			return true;
+					<< "\t";
+			vector<BusPacket *> &queue = getCommandQueue(busPacket->rank,
+					busPacket->bank);
+			for (int i = 0; i != queue.size(); i++) {
+				queue[i]->print();
+			}
+			bankStates[busPacket->rank][busPacket->bank].nextRead =
+					currentClockCycle;
 		}
+		//<< " cancel write\n ";
+//			return true;
+//		}
 	}
-}
+}*/
 void CommandQueue::update() {
 //do nothing since pop() is effectively update(),
 //needed for SimulatorObject

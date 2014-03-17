@@ -90,13 +90,19 @@ void Rank::receiveFromBus(BusPacket *packet)
 	{
 		packet->print(currentClockCycle,false);
 	}
-
 	switch (packet->busPacketType)
 	{
 	case READ:
 		//make sure a read is allowed
+		if(WRITECANCEL){
+			if ((bankStates[packet->bank].lastCommand == WRITE)
+					|| (bankStates[packet->bank].lastCommand ==WRITE_P)) {
+				if(currentClockCycle < bankStates[packet->bank].nextRead )
+					bankStates[packet->bank].nextRead = currentClockCycle;
+			}
+		}
 		if (bankStates[packet->bank].currentBankState != RowActive ||
-//		        currentClockCycle < bankStates[packet->bank].nextRead ||
+		        currentClockCycle < bankStates[packet->bank].nextRead ||
 		        packet->row != bankStates[packet->bank].openRowAddress)
 		{
 			packet->print();
@@ -105,6 +111,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 		}
 
 		//update state table
+		bankStates[packet->bank].lastCommand = READ;
 		bankStates[packet->bank].nextPrecharge = max(bankStates[packet->bank].nextPrecharge, currentClockCycle + READ_TO_PRE_DELAY);
 		for (size_t i=0;i<NUM_BANKS;i++)
 		{
@@ -132,6 +139,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 		}
 
 		//update state table
+		bankStates[packet->bank].lastCommand = READ_P;
 		bankStates[packet->bank].currentBankState = Idle;
 		bankStates[packet->bank].nextActivate = max(bankStates[packet->bank].nextActivate, currentClockCycle + READ_AUTOPRE_DELAY);
 		for (size_t i=0;i<NUM_BANKS;i++)
@@ -163,6 +171,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 		}
 
 		//update state table
+		bankStates[packet->bank].lastCommand = WRITE;
 		bankStates[packet->bank].nextPrecharge = max(bankStates[packet->bank].nextPrecharge, currentClockCycle + WRITE_TO_PRE_DELAY);
 		for (size_t i=0;i<NUM_BANKS;i++)
 		{
@@ -171,6 +180,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 		}
 
 		//take note of where data is going when it arrives
+//		bankStates[packet->bank].starttime=currentClockCycle;
 		incomingWriteBank = packet->bank;
 		incomingWriteRow = packet->row;
 		incomingWriteColumn = packet->column;
@@ -187,6 +197,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 		}
 
 		//update state table
+		bankStates[packet->bank].lastCommand = WRITE_P;
 		bankStates[packet->bank].currentBankState = Idle;
 		bankStates[packet->bank].nextActivate = max(bankStates[packet->bank].nextActivate, currentClockCycle + WRITE_AUTOPRE_DELAY);
 		for (size_t i=0;i<NUM_BANKS;i++)
@@ -196,6 +207,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 		}
 
 		//take note of where data is going when it arrives
+//		bankStates[packet->bank].starttime=currentClockCycle;
 		incomingWriteBank = packet->bank;
 		incomingWriteRow = packet->row;
 		incomingWriteColumn = packet->column;
@@ -211,7 +223,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 			bankStates[packet->bank].print();
 			exit(0);
 		}
-
+		bankStates[packet->bank].lastCommand = ACTIVATE;
 		bankStates[packet->bank].currentBankState = RowActive;
 		bankStates[packet->bank].nextActivate = currentClockCycle + tRC;
 		bankStates[packet->bank].openRowAddress = packet->row;
@@ -246,7 +258,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 			ERROR("== Error - Rank " << id << " received a PRE when not allowed");
 			exit(0);
 		}
-
+		bankStates[packet->bank].lastCommand = PRECHARGE;
 		bankStates[packet->bank].currentBankState = Idle;
 		bankStates[packet->bank].nextActivate = max(bankStates[packet->bank].nextActivate, currentClockCycle + tRP);
 		delete(packet); 
@@ -261,6 +273,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 				exit(0);
 			}
 			bankStates[i].nextActivate = currentClockCycle + tRFC;
+			bankStates[packet->bank].lastCommand = REFRESH;
 		}
 		delete(packet); 
 		break;

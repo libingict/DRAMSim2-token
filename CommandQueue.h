@@ -75,8 +75,8 @@ public:
 	void update(); //SimulatorObject requirement
 	vector<BusPacket *> &getCommandQueue(unsigned rank, unsigned bank);
 //libing
-	bool cancelWrite(BusPacket *busPacket);
-
+//	void cancelWrite(BusPacket *busPacket);
+	vector< vector<unsigned> > canceledWrite;
 	//fields
 	
 	BusPacket3D queues; // 3D array of BusPacket pointers
