@@ -64,7 +64,6 @@ public:
 	//functions
 	CommandQueue(vector< vector<BankState> > &states, ostream &dramsim_log);
 	virtual ~CommandQueue(); 
-
 	void enqueue(BusPacket *newBusPacket);
 	bool pop(BusPacket **busPacket);
 	bool hasRoomFor(unsigned numberToEnqueue, unsigned rank, unsigned bank);
@@ -81,8 +80,7 @@ public:
 	
 	BusPacket3D queues; // 3D array of BusPacket pointers
 	vector< vector<BankState> > &bankStates;
-private:
-	void nextRankAndBank(unsigned &rank, unsigned &bank);
+	void WriteReadTrans(unsigned &r, unsigned &b, unsigned &nextrankPre, unsigned &nextbankPre);
 	//fields
 	unsigned nextBank;
 	unsigned nextRank;
@@ -90,6 +88,8 @@ private:
 	unsigned nextBankPRE;
 	unsigned nextRankPRE;
 
+	void nextRankAndBank(unsigned &rank, unsigned &bank);
+private:
 	unsigned refreshRank;
 	bool refreshWaiting;
 

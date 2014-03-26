@@ -94,13 +94,13 @@ void Rank::receiveFromBus(BusPacket *packet)
 	{
 	case READ:
 		//make sure a read is allowed
-		if(WRITECANCEL){
+/*		if(WRITECANCEL){
 			if ((bankStates[packet->bank].lastCommand == WRITE)
 					|| (bankStates[packet->bank].lastCommand ==WRITE_P)) {
 				if(currentClockCycle < bankStates[packet->bank].nextRead )
 					bankStates[packet->bank].nextRead = currentClockCycle;
 			}
-		}
+		}*/
 		if (bankStates[packet->bank].currentBankState != RowActive ||
 		        currentClockCycle < bankStates[packet->bank].nextRead ||
 		        packet->row != bankStates[packet->bank].openRowAddress)
@@ -180,7 +180,6 @@ void Rank::receiveFromBus(BusPacket *packet)
 		}
 
 		//take note of where data is going when it arrives
-//		bankStates[packet->bank].starttime=currentClockCycle;
 		incomingWriteBank = packet->bank;
 		incomingWriteRow = packet->row;
 		incomingWriteColumn = packet->column;
@@ -207,7 +206,6 @@ void Rank::receiveFromBus(BusPacket *packet)
 		}
 
 		//take note of where data is going when it arrives
-//		bankStates[packet->bank].starttime=currentClockCycle;
 		incomingWriteBank = packet->bank;
 		incomingWriteRow = packet->row;
 		incomingWriteColumn = packet->column;

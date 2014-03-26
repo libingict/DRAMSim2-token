@@ -7,35 +7,44 @@
 
 #ifndef CANCELWRITE_H_
 #define CANCELWRITE_H_
+
 #include "SimulatorObject.h"
 #include "CommandQueue.h"
 #include "BusPacket.h"
 #include "BankState.h"
+
 namespace DRAMSim {
 
 class CancelWrite: public SimulatorObject {
 public:
-	CancelWrite(CommandQueue *cmdqueue, vector<vector<BankState> > &states,
-			ostream &dramsim_log);
+	CancelWrite(vector<vector<BankState> > &states, ostream &dramsim_log);
+	virtual ~CancelWrite();
 	CommandQueue writeQueue;
 	CommandQueue readQueue;
-	CommandQueue *commandQueue;
-	vector<vector<BankState> > bankStates;
-	bool addRequest(Transaction *transaction, BusPacket *buspacket);
+	vector<vector<BankState> > &bankStates;
+	bool addRequest(Transaction *transaction, BusPacket *buspacket,
+			bool &found);
 //	BusPacket* returnReadTransaction(BusPacket* readPacket,
 //			CommandQueue& cmdqueue);
-	bool cancelWrite(BusPacket **busPacket);
-	bool issueRequest(unsigned rank, unsigned bank, BusPacket *busPacket,
+	bool cancelwrite(BusPacket **busPacket);
+	bool issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 			CommandQueue &requestQueue);
 	void update();
+	bool isEmpty(unsigned rank);
 	vector<vector<BusPacket*> > pendingWR;
+	unsigned nextBank;
+	void print();
 private:
 	unsigned writeQueueDepth;
 	vector<vector<bool> > writecancel;
 	vector<vector<unsigned> > writestarttime;
-	unsigned currentClockCyle;
+	vector<vector<unsigned> > readrequest;
+	vector<vector<unsigned> > writerequest;
 	ostream &dramsim_log;
 	vector<BusPacket *> pendingWrite;
+	unsigned nextRank;
+	unsigned nextRankPRE;
+	unsigned nextBankPRE;
 
 };
 }

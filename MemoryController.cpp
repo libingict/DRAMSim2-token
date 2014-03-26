@@ -63,8 +63,8 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_,
 		dramsim_log(dramsim_log_), bankStates(NUM_RANKS,
 				vector < BankState > (NUM_BANKS, dramsim_log)), commandQueue(
 				bankStates, dramsim_log_), psQueue(bankStates, commandQueue,
-				dramsim_log_), poppedBusPacket(NULL), csvOut(csvOut_), totalTransactions(
-				0), refreshRank(0) {
+				dramsim_log_), cancelWrite(bankStates, dramsim_log_), poppedBusPacket(
+				NULL), csvOut(csvOut_), totalTransactions(0), refreshRank(0) {
 	//get handle on parent
 	parentMemorySystem = parent;
 
@@ -216,7 +216,6 @@ void MemoryController::update() {
 						parentMemorySystem->systemID,
 						outgoingDataPacket->physicalAddress, currentClockCycle);
 			}
-
 			(*ranks)[outgoingDataPacket->rank]->receiveFromBus(
 					outgoingDataPacket);
 			outgoingDataPacket = NULL;
@@ -277,10 +276,30 @@ void MemoryController::update() {
 	//pass a pointer to a poppedBusPacket
 
 	//function returns true if there is something valid in poppedBusPacket
-	if (commandQueue.pop(&poppedBusPacket)) {
+	bool popWCQueue = false;
+	bool popcmdQueue = false;
+	bool popqueue = false;
+	BusPacket *poppedWCPacket;
+	BusPacket *poppedcmdPacket;
+	if (WRITECANCEL) {
+		popWCQueue = cancelWrite.cancelwrite(&poppedWCPacket);
+//		popcmdQueue = commandQueue.pop(&poppedcmdPacket);
+//		if (!popWCQueue) {						//如果通过Cancel的读写功能没找到合适的发射，则将CMD中的发射出去，好像不太合适
+//			popqueue = popcmdQueue;
+//			poppedBusPacket=poppedcmdPacket;
+//		}
+//		else{
+		popqueue = popWCQueue;
+		poppedBusPacket = poppedWCPacket;
+//		}
+
+	} else {
+//		popcmdQueue = commandQueue.pop(&poppedcmdPacket);
+		popqueue = commandQueue.pop(&poppedBusPacket);
+	}
+	if (popqueue) {
 		if (poppedBusPacket->busPacketType == WRITE
 				|| poppedBusPacket->busPacketType == WRITE_P) {
-
 			writeDataToSend.push_back(
 					new BusPacket(DATA, poppedBusPacket->physicalAddress,
 							poppedBusPacket->column, poppedBusPacket->row,
@@ -487,12 +506,6 @@ void MemoryController::update() {
 		}
 		outgoingCmdPacket = poppedBusPacket;
 		cmdCyclesLeft = tCMD;
-/*		if((poppedBusPacket->busPacketType == WRITE)||(poppedBusPacket->busPacketType==WRITE_P)){
-			bankStates[rank][bank].starttime=currentClockCycle;
-		}
-		else{
-			bankStates[rank][bank].starttime=0;
-		}*/
 
 	}
 	//if not find issuable cmd due to the current write issue, then cancel the current write
@@ -515,64 +528,122 @@ void MemoryController::update() {
 
 		//if we have room, break up the transaction into the appropriate commands
 		//and add them to the command queue
-		if (commandQueue.hasRoomFor(2, newTransactionRank,
-				newTransactionBank)) {
-			if (DEBUG_ADDR_MAP) {
-				PRINTN(
-						"== New Transaction - Mapping Address [0x" << hex << transaction->address << dec << "]");
-				if (transaction->transactionType == DATA_READ) {
-					PRINT(" (Read)");
-				} else {
-					PRINT(" (Write)");
+		if (!WRITECANCEL) {
+			if (commandQueue.hasRoomFor(2, newTransactionRank,
+					newTransactionBank)) {
+				if (DEBUG_ADDR_MAP) {
+					PRINTN(
+							"== New Transaction - Mapping Address [0x" << hex << transaction->address << dec << "]");
+					if (transaction->transactionType == DATA_READ) {
+						PRINT(" (Read)");
+					} else {
+						PRINT(" (Write)");
+					}
+					PRINT("  Rank : " << newTransactionRank);
+					PRINT("  Bank : " << newTransactionBank);
+					PRINT("  Row  : " << newTransactionRow);
+					PRINT("  Col  : " << newTransactionColumn);
 				}
-				PRINT("  Rank : " << newTransactionRank);
-				PRINT("  Bank : " << newTransactionBank);
-				PRINT("  Row  : " << newTransactionRow);
-				PRINT("  Col  : " << newTransactionColumn);
+
+				//now that we know there is room in the command queue, we can remove from the transaction queue
+
+				//create activate command to the row we just translated
+				BusPacket *ACTcommand = new BusPacket(ACTIVATE,
+						transaction->address, newTransactionColumn,
+						newTransactionRow, newTransactionRank,
+						newTransactionBank, 0, dramsim_log);
+
+				//create read or write command and enqueue it
+				BusPacketType bpType = transaction->getBusPacketType();
+				BusPacket *command = new BusPacket(bpType, transaction->address,
+						newTransactionColumn, newTransactionRow,
+						newTransactionRank, newTransactionBank,
+						transaction->data, dramsim_log);
+				transactionQueue.erase(transactionQueue.begin() + i);
+				commandQueue.enqueue(ACTcommand);
+				commandQueue.enqueue(command);
+				if (transaction->transactionType == DATA_READ) {
+					pendingReadTransactions.push_back(transaction);
+				} else {
+					// just delete the transaction now that it's a buspacket
+					delete transaction;
+				}
+				/* only allow one transaction to be scheduled per cycle -- this should
+				 * be a reasonable assumption considering how much logic would be
+				 * required to schedule multiple entries per cycle (parallel data
+				 * lines, switching logic, decision logic)
+				 */
+				break;
+			} else // no room, do nothing this cycle
+			{
+				//PRINT( "== Warning - No room in command queue" << endl;
 			}
+		}
 
-			//now that we know there is room in the command queue, we can remove from the transaction queue
-			transactionQueue.erase(transactionQueue.begin() + i);
-
-			//create activate command to the row we just translated
-			BusPacket *ACTcommand = new BusPacket(ACTIVATE,
-					transaction->address, newTransactionColumn,
-					newTransactionRow, newTransactionRank, newTransactionBank,
-					0, dramsim_log);
-
-			//create read or write command and enqueue it
+		// If we have a read, save the transaction so when the data comes back
+		// in a bus packet, we can staple it back into a transaction and return it
+		if (WRITECANCEL) {
+			bool added = false;
+			bool found = false;
 			BusPacketType bpType = transaction->getBusPacketType();
 			BusPacket *command = new BusPacket(bpType, transaction->address,
 					newTransactionColumn, newTransactionRow, newTransactionRank,
 					newTransactionBank, transaction->data, dramsim_log);
-
-			commandQueue.enqueue(ACTcommand);
-			commandQueue.enqueue(command);
-
-			// If we have a read, save the transaction so when the data comes back
-			// in a bus packet, we can staple it back into a transaction and return it
 			if (transaction->transactionType == DATA_READ) {
-				//WRITECANCEL
-				/*if (cancelwrite.addRequest(transaction, command)) {
-					if(transaction->transactionType == RETURN_DATA){
-						returnTransaction.push_back(transaction);
-					}
-			}*/
-				pendingReadTransactions.push_back(transaction);
+				Transaction *trans = new Transaction(*transaction);
+				added = cancelWrite.addRequest(trans, command, found);
+				if (found) {
+					returnTransaction.push_back(trans);
+					totalReadsPerBank[SEQUENTIAL(newTransactionRank,newTransactionBank)]++;
+				}
+				if (added) {
+					pendingReadTransactions.push_back(transaction);
+					transactionQueue.erase(transactionQueue.begin() + i);
+					break;
+				} else {
+//					PRINT(
+//							"currentClockCycle is "<<currentClockCycle <<" bank is "<<newTransactionBank<<" nextBank is "<<cancelWrite.nextBank);
+//					cout << endl;
+//					for (size_t i = 0; i < NUM_RANKS; i++) {
+//						for (size_t j = 0; j < NUM_BANKS; j++) {
+//							bankStates[i][j].print(); //
+//						}
+//					}
+//					cancelWrite.readQueue.print();
+//					exit(-1);
+				}
 
-			} else {
-				// just delete the transaction now that it's a buspacket
-				delete transaction;
+			} else if (transaction->transactionType == DATA_WRITE) {
+				added = cancelWrite.addRequest(transaction, command, found);
+				if (found) {
+					totalTransactions++;
+					totalWritesPerBank[SEQUENTIAL(newTransactionRank,newTransactionBank)]++;
+				}
+				if (added) {
+					delete transaction;
+					transactionQueue.erase(transactionQueue.begin() + i);
+					break;
+				} else {
+//					PRINT(
+//							"currentClockCycle is "<<currentClockCycle <<" bank is "<<newTransactionBank<<" nextBank is "<<cancelWrite.nextBank);
+//					cout << endl;
+//					for (size_t i = 0; i < NUM_RANKS; i++) {
+//						for (size_t j = 0; j < NUM_BANKS; j++) {
+//							bankStates[i][j].print(); //
+//						}
+//					}
+//					cancelWrite.writeQueue.print();
+//					exit(-1);
+				}
 			}
+			// just delete the transaction now that it's a buspacket
+
 			/* only allow one transaction to be scheduled per cycle -- this should
 			 * be a reasonable assumption considering how much logic would be
 			 * required to schedule multiple entries per cycle (parallel data
 			 * lines, switching logic, decision logic)
 			 */
-			break;
-		} else // no room, do nothing this cycle
-		{
-			PRINT( "== Warning - No room in command queue" );
+
 		}
 	}
 
@@ -581,7 +652,8 @@ void MemoryController::update() {
 	for (size_t i = 0; i < NUM_RANKS; i++) {
 		if (USE_LOW_POWER) {
 			//if there are no commands in the queue and that particular rank is not waiting for a refresh...
-			if (commandQueue.isEmpty(i) && !(*ranks)[i]->refreshWaiting) {
+			if (commandQueue.isEmpty(i) && cancelWrite.isEmpty(i)
+					&& !(*ranks)[i]->refreshWaiting) {
 				//check to make sure all banks are idle
 				bool allIdle = true;
 				for (size_t j = 0; j < NUM_BANKS; j++) {
@@ -654,7 +726,7 @@ void MemoryController::update() {
 			PRINTN(" -- MC Issuing to CPU bus : " << *returnTransaction[0]);
 		}
 		totalTransactions++;
-
+//		PRINT(" -- returnTransaction.size() is  : " << returnTransaction.size());
 		bool foundMatch = false;
 		//find the pending read transaction to calculate latency
 		for (size_t i = 0; i < pendingReadTransactions.size(); i++) {
@@ -730,8 +802,8 @@ void MemoryController::update() {
 	if (DEBUG_CMD_Q) {
 		commandQueue.print();
 	}
-
 	commandQueue.step();
+	cancelWrite.update();
 
 }
 
@@ -818,7 +890,7 @@ void MemoryController::printStats(bool finalStats) {
 	cout.precision(3);
 	cout.setf(ios::fixed, ios::floatfield);
 #endif
-	commandQueue.print();
+//	commandQueue.print();
 	PRINT(" =======================================================");
 	PRINT(
 			" ============== Printing Statistics [id:"<<parentMemorySystem->systemID<<"]==============");

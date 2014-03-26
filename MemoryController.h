@@ -46,6 +46,7 @@
 #include "Rank.h"
 #include "CSVWriter.h"
 #include "PartialSETQueue.h"
+#include "CancelWrite.h"
 #include <map>
 
 #define RETAIN_TIME 4E+9/tCK
@@ -86,6 +87,7 @@ private:
 
 	CommandQueue commandQueue;
 	PartialSETQueue psQueue;	//add PartialSET queue
+	CancelWrite cancelWrite;		//cancelWrite
 
 	BusPacket *poppedBusPacket;
 	vector<unsigned>refreshCountdown;
