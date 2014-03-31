@@ -409,37 +409,6 @@ bool CommandQueue::pop(BusPacket **busPacket) {
 
 							foundIssuable = true;
 							break;
-						} else if (WRITECANCEL) {
-							bool allpending = false;
-							switch (packet->busPacketType) {
-							case ACTIVATE:
-								if (currentClockCycle
-										< min(
-												bankStates[packet->rank][packet->bank].nextActivate,
-												min(
-														bankStates[packet->rank][packet->bank].nextWrite,
-														bankStates[packet->rank][packet->bank].nextRead)))
-									allpending = true;
-								break;
-							case READ:
-								if (currentClockCycle
-										< min(
-												bankStates[packet->rank][packet->bank].nextActivate,
-												bankStates[packet->rank][packet->bank].nextRead))
-									allpending = true;
-								break;
-							case WRITE:
-								if (currentClockCycle
-										< min(
-												bankStates[packet->rank][packet->bank].nextActivate,
-												bankStates[packet->rank][packet->bank].nextWrite))
-									allpending = true;
-								break;
-							default:
-								break;
-							}
-							if (allpending)
-								break;
 						}
 					}
 				}

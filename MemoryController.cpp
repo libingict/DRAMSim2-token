@@ -726,17 +726,11 @@ void MemoryController::update() {
 			PRINTN(" -- MC Issuing to CPU bus : " << *returnTransaction[0]);
 		}
 		totalTransactions++;
-//		PRINT(" -- returnTransaction.size() is  : " << returnTransaction.size());
 		bool foundMatch = false;
 		//find the pending read transaction to calculate latency
 		for (size_t i = 0; i < pendingReadTransactions.size(); i++) {
 			if (pendingReadTransactions[i]->address
 					== returnTransaction[0]->address) {
-				//if(currentClockCycle - pendingReadTransactions[i]->timeAdded > 2000)
-				//	{
-				//		pendingReadTransactions[i]->print();
-				//		exit(0);
-				//	}
 				unsigned chan, rank, bank, row, col;
 				addressMapping(returnTransaction[0]->address, chan, rank, bank,
 						row, col);

@@ -98,7 +98,6 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 		}
 		//every bank pending one request.
 		if (writeQueue.hasRoomFor(2, buspacket->rank, buspacket->bank)) {
-//			if(bankStates[buspacket->rank][buspacket->bank].OpenRowAddress)
 			writeQueue.enqueue(
 					new BusPacket(ACTIVATE, buspacket->physicalAddress,
 							buspacket->column, buspacket->row, buspacket->rank,
@@ -121,29 +120,13 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 	vector<BusPacket *> &queue = requestQueue.getCommandQueue(r, b);
 	for (unsigned i = 0; i < queue.size(); i++) {
 		BusPacket *request = queue[i];
-		if (requestQueue.isIssuable(request)) {
-			//check for dependencies
-//			bool dependencyFound = false;
-//			for (unsigned j = 0; j < i; j++) {
-//				BusPacket *prevPacket = queue[j];
-//				if (prevPacket->row == request->row) {
-//					if (prevPacket->busPacketType != ACTIVATE) {
-//						dependencyFound = true;
-//						break;
-//					}
-//				}
-//			}
-//			if (dependencyFound)
-//				continue;
 			busPacket = request;
 			/*
 			 if the bus packet before is an activate, that is the act that was
 			 paired with the column access we are removing, so we have to remove
 			 that activate as well (check i>0 because if i==0 then there's nothing before it)
 			 */
-			if (i > 0 && queue[i - 1]->busPacketType == ACTIVATE){
-//					&& queue[i - 1]->row == busPacket->row) {
-//									rowAccessCounters[(*busPacket)->rank][(*busPacket)->bank]++;
+			if (i > 0 && queue[i - 1]->busPacketType == ACTIVATE) {
 				// i is being returned, but i-1 is being thrown away, so must delete it here
 				delete (queue[i - 1]);
 				// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
@@ -188,8 +171,8 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 
 }
 bool CancelWrite::cancelwrite(BusPacket **busPacket) {
-	bool allempty = true;
-//	bool writing=false;
+	vector < vector<bool> > pendingWrite = vector < vector<bool>
+			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
 	if (rowBufferPolicy == OpenPage && queuingStructure == PerRankPerBank) {
 		bool issueWrite = false;
 		bool issueRead = false;
@@ -202,47 +185,28 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 			vector<BusPacket *> &readqueue = readQueue.getCommandQueue(nextRank,
 					nextBank);
 			if (writequeue.size() > 16) {
-				allempty = false;
 				issueWrite = issueRequest(nextRank, nextBank, *busPacket,
 						writeQueue);
-				if (!issueWrite) {
-					if ((readqueue.size() != 0)) {
-						issueRead = issueRequest(nextRank, nextBank, *busPacket,
-								readQueue);
-					}
-				}
-
 			} else {
-				if (readqueue.size() != 0) {
-					allempty = false;
-					issueRead = issueRequest(nextRank, nextBank, *busPacket,
-							readQueue);
-				} else if (bankStates[nextRank][nextBank].currentBankState
-						== Idle) {
-					if (writequeue.size() != 0) {
-						allempty = false;
+				if (bankStates[nextRank][nextBank].currentBankState == Idle) {
+					if (readqueue.empty() && !writequeue.empty()) {
 						issueWrite = issueRequest(nextRank, nextBank,
 								*busPacket, writeQueue);
-						if((*(*busPacket)).busPacketType==ACTIVATE){
-							writing=true;
-						}
-						else{
-
-						}
 					}
+				}
+				if (!readqueue.empty()) {
+					issueRead = issueRequest(nextRank, nextBank, *busPacket,
+							readQueue);
 				}
 			}
 			if (issueWrite || issueRead) {
 				return true;
 			}
 			writeQueue.nextRankAndBank(nextRank, nextBank);
-			writeQueue.WriteReadTrans(readQueue.nextRank, readQueue.nextBank,
-					readQueue.nextRankPRE, readQueue.nextBankPRE);
 		} while (!(startingRank == nextRank && startingBank == nextBank));
 
 		if ((!issueWrite) && (!issueRead)) {
 			//issue the PRE to the bank
-
 			unsigned startingRank = nextRankPRE;
 			unsigned startingBank = nextBankPRE;
 			do {
@@ -253,16 +217,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 						nextRankPRE, nextBankPRE);
 				if (bankStates[nextRankPRE][nextBankPRE].currentBankState
 						== RowActive) {
-					for (unsigned i = 0; i < readqueue.size(); i++) {
-						//if there is something going to that bank and row, then we don't want to send a PRE
-						if (readqueue[i]->bank == nextBankPRE
-								&& readqueue[i]->row
-										== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
-							found = true;
-							break;
-						}
-					}
-				/*	if (!found) {
+					if (writequeue.size() > 16) {
 						for (unsigned i = 0; i < writequeue.size(); i++) {
 							//if there is something going to that bank and row, then we don't want to send a PRE
 							if (writequeue[i]->bank == nextBankPRE
@@ -272,7 +227,45 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 								break;
 							}
 						}
-					}*/
+						if (!found) {
+							for (unsigned i = 0; i < readqueue.size(); i++) {
+								//if there is something going to that bank and row, then we don't want to send a PRE
+								if (readqueue[i]->bank == nextBankPRE
+										&& readqueue[i]->row
+												== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
+									issueRead = issueRequest(nextRankPRE, nextBankPRE, *busPacket,
+																readQueue);
+									found=true;
+									break;
+								}
+							}
+						}
+					}
+					else {
+						for (unsigned i = 0; i < readqueue.size(); i++) {
+							//if there is something going to that bank and row, then we don't want to send a PRE
+							if (readqueue[i]->bank == nextBankPRE
+									&& readqueue[i]->row
+											== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
+								found = true;
+								break;
+							}
+						}
+						if (!found) {
+							for (unsigned i = 0; i < writequeue.size(); i++) {
+								//if there is something going to that bank and row, then we don't want to send a PRE
+								if (writequeue[i]->bank == nextBankPRE
+										&& writequeue[i]->row
+												== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
+									issueWrite = issueRequest(nextRankPRE,
+											nextBankPRE, *busPacket,
+											writeQueue);
+									found = true;
+									break;
+								}
+							}
+						}
+					}
 					if (!found) {
 						if (currentClockCycle
 								>= bankStates[nextRankPRE][nextBankPRE].nextPrecharge) {
@@ -284,14 +277,11 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 					}
 				}
 				writeQueue.nextRankAndBank(nextRankPRE, nextBankPRE);
-////				writeQueue.WriteReadTrans(readQueue.nextRank,
-//						readQueue.nextBank, readQueue.nextRankPRE,
-//						readQueue.nextBankPRE);
 			} while (!(startingRank == nextRankPRE
 					&& startingBank == nextBankPRE));
-			if (!sendingPRE) {
+			if (!sendingPRE && (!issueWrite || !issueRead)) {
 				return false;
-			}else{
+			} else {
 				return true;
 			}
 		}
