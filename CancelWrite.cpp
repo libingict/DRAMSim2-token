@@ -109,10 +109,7 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 			delete buspacket;
 			return false;
 		}
-
 	}
-	return false;
-
 }
 bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 		CommandQueue &requestQueue) {
@@ -120,6 +117,7 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 	vector<BusPacket *> &queue = requestQueue.getCommandQueue(r, b);
 	for (unsigned i = 0; i < queue.size(); i++) {
 		BusPacket *request = queue[i];
+		if (requestQueue.isIssuable(request)) {
 			busPacket = request;
 			/*
 			 if the bus packet before is an activate, that is the act that was
@@ -187,6 +185,13 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 			if (writequeue.size() > 16) {
 				issueWrite = issueRequest(nextRank, nextBank, *busPacket,
 						writeQueue);
+				//insert if the read is blocked
+				/*if(!readqueue.empty()){
+				 if(BankState[nextRank][nextBank].currentBankState==RowActive&& BankState[nextRank][nextBank].lastCommand==ACTIVATE){
+				 if
+				 }
+
+				 }*/
 			} else {
 				if (bankStates[nextRank][nextBank].currentBankState == Idle) {
 					if (readqueue.empty() && !writequeue.empty()) {
@@ -224,7 +229,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 									&& writequeue[i]->row
 											== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
 								found = true;
-								break;
+								return false;
 							}
 						}
 						if (!found) {
@@ -233,22 +238,22 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 								if (readqueue[i]->bank == nextBankPRE
 										&& readqueue[i]->row
 												== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
-									issueRead = issueRequest(nextRankPRE, nextBankPRE, *busPacket,
-																readQueue);
-									found=true;
-									break;
+									issueRead = issueRequest(nextRankPRE,
+											nextBankPRE, *busPacket, readQueue);
+									if (issueRead) {
+										return true;
+									}
 								}
 							}
 						}
-					}
-					else {
+					} else {
 						for (unsigned i = 0; i < readqueue.size(); i++) {
 							//if there is something going to that bank and row, then we don't want to send a PRE
 							if (readqueue[i]->bank == nextBankPRE
 									&& readqueue[i]->row
 											== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
 								found = true;
-								break;
+								return false;
 							}
 						}
 						if (!found) {
@@ -260,8 +265,23 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 									issueWrite = issueRequest(nextRankPRE,
 											nextBankPRE, *busPacket,
 											writeQueue);
-									found = true;
-									break;
+									if (issueWrite) {
+										return true;
+									}
+									//change to add a ACT to this write and PRE This bank
+									/*									if(writequeue[i]->busPacketType!=ACTIVATE){
+									 vector<BusPacket*>::iterator it =
+									 writequeue.begin()+i;
+									 BusPacket *bpacket = new BusPacket(ACTIVATE,
+									 writequeue[i]->physicalAddress,
+									 writequeue[i]->column,
+									 writequeue[i]->row,
+									 writequeue[i]->rank,
+									 writequeue[i]->bank,
+									 writequeue[i]->data, dramsim_log);
+									 writequeue.insert(it, bpacket);
+									 }
+									 break;*/
 								}
 							}
 						}
@@ -272,18 +292,18 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 							sendingPRE = true;
 							*busPacket = new BusPacket(PRECHARGE, 0, 0, 0,
 									nextRankPRE, nextBankPRE, 0, dramsim_log);
-							break;
+							return true;
 						}
 					}
 				}
 				writeQueue.nextRankAndBank(nextRankPRE, nextBankPRE);
 			} while (!(startingRank == nextRankPRE
 					&& startingBank == nextBankPRE));
-			if (!sendingPRE && (!issueWrite || !issueRead)) {
-				return false;
-			} else {
-				return true;
-			}
+			/*			if (!sendingPRE) {
+			 return false;
+			 } else {
+			 return true;
+			 }*/
 		}
 	}
 	return false;

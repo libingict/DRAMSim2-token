@@ -623,17 +623,6 @@ void MemoryController::update() {
 					delete transaction;
 					transactionQueue.erase(transactionQueue.begin() + i);
 					break;
-				} else {
-//					PRINT(
-//							"currentClockCycle is "<<currentClockCycle <<" bank is "<<newTransactionBank<<" nextBank is "<<cancelWrite.nextBank);
-//					cout << endl;
-//					for (size_t i = 0; i < NUM_RANKS; i++) {
-//						for (size_t j = 0; j < NUM_BANKS; j++) {
-//							bankStates[i][j].print(); //
-//						}
-//					}
-//					cancelWrite.writeQueue.print();
-//					exit(-1);
 				}
 			}
 			// just delete the transaction now that it's a buspacket
