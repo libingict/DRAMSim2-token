@@ -12,16 +12,18 @@
 #include "CommandQueue.h"
 #include "BusPacket.h"
 #include "BankState.h"
+#include "Rank.h"
 
 namespace DRAMSim {
 
 class CancelWrite: public SimulatorObject {
 public:
-	CancelWrite(vector<vector<BankState> > &states, ostream &dramsim_log);
+	CancelWrite(vector<vector<BankState> > &states, ostream &dramsim_log,vector<Rank *> *&ranks);
 	virtual ~CancelWrite();
+	vector<vector<BankState> > &bankStates;
 	CommandQueue writeQueue;
 	CommandQueue readQueue;
-	vector<vector<BankState> > &bankStates;
+	vector<Rank*> *&ranks;
 	bool addRequest(Transaction *transaction, BusPacket *buspacket,
 			bool &found);
 //	BusPacket* returnReadTransaction(BusPacket* readPacket,
@@ -29,10 +31,11 @@ public:
 	bool cancelwrite(BusPacket **busPacket);
 	bool issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 			CommandQueue &requestQueue);
+	bool issueWC(unsigned r, unsigned b, BusPacket *&busPakcet);
 	void update();
 	bool isEmpty(unsigned rank);
 	vector<vector<BusPacket*> > pendingWR;
-	unsigned nextBank;
+
 	void print();
 private:
 	unsigned writeQueueDepth;
@@ -43,6 +46,7 @@ private:
 	ostream &dramsim_log;
 	vector<BusPacket *> pendingWrite;
 	unsigned nextRank;
+	unsigned nextBank;
 	unsigned nextRankPRE;
 	unsigned nextBankPRE;
 

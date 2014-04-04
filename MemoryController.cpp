@@ -63,7 +63,7 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_,
 		dramsim_log(dramsim_log_), bankStates(NUM_RANKS,
 				vector < BankState > (NUM_BANKS, dramsim_log)), commandQueue(
 				bankStates, dramsim_log_), psQueue(bankStates, commandQueue,
-				dramsim_log_), cancelWrite(bankStates, dramsim_log_), poppedBusPacket(
+				dramsim_log_), cancelWrite(bankStates, dramsim_log_,&*ranks), poppedBusPacket(
 				NULL), csvOut(csvOut_), totalTransactions(0), refreshRank(0) {
 	//get handle on parent
 	parentMemorySystem = parent;
@@ -140,6 +140,7 @@ void MemoryController::returnReadData(const Transaction *trans) {
 //gives the memory controller a handle on the rank objects
 void MemoryController::attachRanks(vector<Rank *> *ranks) {
 	this->ranks = ranks;
+//	cancelWrite.ranks = ranks;
 }
 
 //PSqueue update
@@ -283,18 +284,9 @@ void MemoryController::update() {
 	BusPacket *poppedcmdPacket;
 	if (WRITECANCEL) {
 		popWCQueue = cancelWrite.cancelwrite(&poppedWCPacket);
-//		popcmdQueue = commandQueue.pop(&poppedcmdPacket);
-//		if (!popWCQueue) {						//如果通过Cancel的读写功能没找到合适的发射，则将CMD中的发射出去，好像不太合适
-//			popqueue = popcmdQueue;
-//			poppedBusPacket=poppedcmdPacket;
-//		}
-//		else{
 		popqueue = popWCQueue;
 		poppedBusPacket = poppedWCPacket;
-//		}
-
 	} else {
-//		popcmdQueue = commandQueue.pop(&poppedcmdPacket);
 		popqueue = commandQueue.pop(&poppedBusPacket);
 	}
 	if (popqueue) {

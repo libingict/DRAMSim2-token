@@ -80,7 +80,6 @@ public:
 	
 	BusPacket3D queues; // 3D array of BusPacket pointers
 	vector< vector<BankState> > &bankStates;
-	void WriteReadTrans(unsigned &r, unsigned &b, unsigned &nextrankPre, unsigned &nextbankPre);
 	//fields
 	unsigned nextBank;
 	unsigned nextRank;
