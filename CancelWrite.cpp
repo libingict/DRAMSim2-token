@@ -26,6 +26,8 @@ CancelWrite::CancelWrite(vector<vector<BankState> > &states,
 			> (NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
 	pendingWR = vector < vector<BusPacket *>
 			> (NUM_RANKS, vector<BusPacket *>(NUM_BANKS, NULL));
+	writepriority = vector < vector<bool>
+			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
 
 }
 CancelWrite::~CancelWrite() {
@@ -169,84 +171,44 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 	}
 	return issuable;
 }
-bool CancelWrite::issueWC(unsigned r, unsigned b, BusPacket *&busPacket) {
-//	bool cancel = false;
+void CancelWrite::issueWC(unsigned r, unsigned b) { //if there is waiting read request, issue the request.
+	bool issueRead = false;
 	vector<BusPacket *> &rdqueue = readQueue.getCommandQueue(r, b);
-	vector<BusPacket *> &wrqueue = writeQueue.getCommandQueue(r, b);
-	unsigned oldnextRead = bankStates[r][b].nextRead;
-	unsigned delta = oldnextRead - currentClockCycle;
-	if (bankStates[r][b].currentBankState == RowActive) {
-		if (bankStates[r][b].lastCommand == ACTIVATE) {
-			//insert ACTIVATE to the paired Write Transaction
-			for (unsigned i = 0; i < wrqueue.size(); i++) {
-				if (wrqueue[i]->bank == b
-						&& wrqueue[i]->row == bankStates[r][b].openRowAddress) {
-					if (wrqueue[i]->busPacketType != ACTIVATE) {
-						vector<BusPacket*>::iterator it = wrqueue.begin() + i;
-						BusPacket *bpacket = new BusPacket(ACTIVATE,
-								wrqueue[i]->physicalAddress, wrqueue[i]->column,
-								wrqueue[i]->row, wrqueue[i]->rank,
-								wrqueue[i]->bank, wrqueue[i]->data,
-								dramsim_log);
-						wrqueue.insert(it, bpacket);
-					}
-					break;
-				}
-			}
-		} else if (bankStates[r][b].lastCommand == WRITE) {
-			//1.push_back the paired of Write and ACTIVATE to the writequeue.
-			if (delta > (0.75 * WRITE_TO_READ_DELAY_R)) {
-				//modify all timing for all Bank
-				bankStates[r][b].nextPrecharge -= delta;
-				bankStates[r][b].nextWrite -= delta;
-				bankStates[r][b].nextRead -= delta;
-				/*for (size_t i = 0; i < NUM_RANKS; i++) {
-				 for (size_t j = 0; j < NUM_BANKS; j++) {
-				 bankStates[i][j].nextWrite -= delta;
-				 bankStates[i][j].nextRead -= delta;
-				 }
-				 }*/
-				//2.modify the cycle of Rank;
-				(*ranks)[r]->bankStates[b].nextPrecharge -= delta;
-//					for (size_t i = 0; i < NUM_BANKS; i++) {
-				(*ranks)[r]->bankStates[b].nextRead -= delta;
-				(*ranks)[r]->bankStates[b].nextWrite -= delta;
-//					}
-			}
-		}
-		bool found = false;
+	if (bankStates[r][b].currentBankState == RowActive
+			&& bankStates[r][b].lastCommand == WRITE) {
+		//1.push_back the paired of Write and ACTIVATE to the writequeue.
 		for (unsigned i = 0; i < rdqueue.size(); i++) {
 			BusPacket *packet = rdqueue[i];
 			if (bankStates[r][b].openRowAddress == packet->row) {
-				found = true;
 				//modify all timing for all Bank
 				/*						bankStates[r][b].nextRead = currentClockCycle;
 				 //2.modify the cycle of Rank;
 				 //modify all timing for all Bank in Rank
 				 (*ranks)[r]->bankStates[b].nextRead = currentClockCycle;*/
-				if (issueRequest(r, b, busPacket, readQueue)) {
-					return true;
+				issueRead = readQueue.isIssuable(packet);
+				if (!issueRead
+						&& currentClockCycle < bankStates[r][b].nextRead) { //issue Write Request
+					unsigned oldnextRead = bankStates[r][b].nextRead;
+					unsigned delta = oldnextRead - currentClockCycle;
+					if (pendingWR[r][b] != NULL
+							&& delta > (0.75 * WRITE_TO_READ_DELAY_R)) {
+						//modify all timing for all Bank
+						bankStates[r][b].nextPrecharge -= delta;
+						bankStates[r][b].nextWrite -= delta;
+						bankStates[r][b].nextRead -= delta;
+						//2.modify the cycle of Rank;
+						(*ranks)[r]->bankStates[b].nextPrecharge -= delta;
+						(*ranks)[r]->bankStates[b].nextRead -= delta;
+						(*ranks)[r]->bankStates[b].nextWrite -= delta;
+					}
+					return;
 				}
-				break;
 			}
 		}
-		if (!found) {
-			if (currentClockCycle >= bankStates[r][b].nextPrecharge) {
-				busPacket = new BusPacket(PRECHARGE, 0, 0, 0, r, b, 0,
-						dramsim_log);
-				return true;
-			}
-		}
-	} else {
-		if (issueRequest(r, b, busPacket, readQueue))
-			return true;
 	}
-	return false;
+	//if idle nothing to do , no write block the read
 }
 bool CancelWrite::cancelwrite(BusPacket **busPacket) {
-	vector < vector<bool> > pendingWrite = vector < vector<bool>
-			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
-	bool writepriority;
 	if (rowBufferPolicy == OpenPage && queuingStructure == PerRankPerBank) {
 		bool issueWrite = false;
 		bool issueRead = false;
@@ -258,96 +220,154 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 					nextRank, nextBank);
 			vector<BusPacket *> &readqueue = readQueue.getCommandQueue(nextRank,
 					nextBank);
-			writepriority = false;
-			if (writequeue.size() > 16) {
-				writepriority = true;
-				break;
-			} else {
-				if (bankStates[nextRank][nextBank].currentBankState == Idle) {
-					if (readqueue.empty() && !writequeue.empty()) {
-						issueWrite = issueRequest(nextRank, nextBank,
-								*busPacket, writeQueue);
-					}
-				}
-				if (!readqueue.empty()) {
-					issueRead = issueRequest(nextRank, nextBank, *busPacket,
-							readQueue);
+			if (!writepriority[nextRank][nextBank]) {	//then read priority
+				if (writequeue.size() > 16) {
+					writepriority[nextRank][nextBank] = true;
 				}
 			}
+			if (writepriority[nextRank][nextBank]) {
+				/*				if (writequeue.size() <= 8 && !readqueue.empty()) {
+				 writepriority[nextRank][nextBank] = false;
+				 }*/
+				if (!readqueue.empty() && writequeue.size() < 30) {
+					writepriority[nextRank][nextBank] = false;
+					issueWC(nextRank, nextBank);
+					issueRead = issueRequest(nextRank, nextBank, *busPacket,
+							readQueue);
+					if (issueRead) {
+						if (bankStates[nextRank][nextBank].lastCommand == WRITE
+								&& pendingWR[nextRank][nextBank]->busPacketType
+										== WRITE) {
+							//only these commands have an implicit state change
+							BusPacket *oldpacket =
+									new BusPacket(WRITE,
+											pendingWR[nextRank][nextBank]->physicalAddress,
+											pendingWR[nextRank][nextBank]->column,
+											pendingWR[nextRank][nextBank]->row,
+											pendingWR[nextRank][nextBank]->rank,
+											pendingWR[nextRank][nextBank]->bank,
+											pendingWR[nextRank][nextBank]->data,
+											dramsim_log);
+							BusPacket *command = new BusPacket(ACTIVATE,
+									oldpacket->physicalAddress,
+									oldpacket->column, oldpacket->row,
+									oldpacket->rank, oldpacket->bank,
+									oldpacket->data, dramsim_log);
+							vector<BusPacket*>::iterator it =
+									writequeue.begin();
+							writequeue.insert(it,
+									new BusPacket(WRITE,
+											pendingWR[nextRank][nextBank]->physicalAddress,
+											pendingWR[nextRank][nextBank]->column,
+											pendingWR[nextRank][nextBank]->row,
+											pendingWR[nextRank][nextBank]->rank,
+											pendingWR[nextRank][nextBank]->bank,
+											pendingWR[nextRank][nextBank]->data,
+											dramsim_log));
+							writequeue.insert(it,
+									new BusPacket(ACTIVATE,
+											oldpacket->physicalAddress,
+											oldpacket->column, oldpacket->row,
+											oldpacket->rank, oldpacket->bank,
+											oldpacket->data, dramsim_log));
+						}
+						pendingWR[nextRank][nextBank] = NULL;
+						return true;
+					}
+				}
+				bool found = false;
+				for (unsigned i = 0; i < writequeue.size(); i++) {
+					//if there is something going to that bank and row, then we don't want to send a PRE
+					issueWrite = writeQueue.isIssuable(writequeue[i]);
+					if (issueWrite) {		//issue Write Request
+						*busPacket = writequeue[i];
+						if (writequeue[i]->busPacketType == WRITE) {
+							pendingWR[nextRank][nextBank] = new BusPacket(WRITE,
+									writequeue[i]->physicalAddress,
+									writequeue[i]->column, writequeue[i]->row,
+									writequeue[i]->rank, writequeue[i]->bank,
+									writequeue[i]->data, dramsim_log);
+						}
+						if (i > 0
+								&& writequeue[i - 1]->busPacketType
+										== ACTIVATE) {
+							// i is being returned, but i-1 is being thrown away, so must delete it here
+							delete (writequeue[i - 1]);
+							// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
+							writequeue.erase(writequeue.begin() + i - 1,
+									writequeue.begin() + i + 1);
+						} else { // there's no activate before this packet
+							//or just remove the one bus packet
+							writequeue.erase(writequeue.begin() + i);
+						}
+
+						return true;
+					}
+					//else 1. bank is open but not same row, need precharge;
+					//2. bank is idle, timing not allow, need wait; check the next request
+					//3. bank is open, same row, timing not allow,need wait;check the next request
+					if (bankStates[nextRank][nextBank].currentBankState
+							== RowActive && writequeue[i]->bank == nextBank
+							&& writequeue[i]->row
+									== bankStates[nextRank][nextBank].openRowAddress) { //check the 1st condition
+						found = true;  //once find one, no need to precharge;
+					}
+				}
+				if (!found) { //every entry in write queue is not equal with the open row, then close
+					if (currentClockCycle
+							>= bankStates[nextRank][nextBank].nextPrecharge
+							&& bankStates[nextRank][nextBank].currentBankState
+									== RowActive) {
+						*busPacket = new BusPacket(PRECHARGE, 0, 0, 0, nextRank,
+								nextBank, 0, dramsim_log);
+						for (unsigned i = 0; i < readqueue.size(); i++) { //assure no dangling READ
+							//if there is something going to that bank and row, then we don't want to send a PRE
+							if (readqueue[i]->bank == nextBank
+									&& readqueue[i]->row
+											== bankStates[nextRank][nextBank].openRowAddress) {
+								if (readqueue[i]->busPacketType != ACTIVATE) {
+									vector<BusPacket*>::iterator it =
+											readqueue.begin() + i;
+									BusPacket *bpacket = new BusPacket(ACTIVATE,
+											readqueue[i]->physicalAddress,
+											readqueue[i]->column,
+											readqueue[i]->row,
+											readqueue[i]->rank,
+											readqueue[i]->bank,
+											readqueue[i]->data, dramsim_log);
+									readqueue.insert(it, bpacket);
+								}
+								break;
+							}
+						}
+						pendingWR[nextRank][nextBank] = NULL;
+						return true;
+					}
+				}
+			}
+			if (bankStates[nextRank][nextBank].currentBankState == Idle) {
+				if (readqueue.empty() && !writequeue.empty()) {
+					issueWrite = issueRequest(nextRank, nextBank, *busPacket,
+							writeQueue);
+				}
+			}
+			if (!readqueue.empty()) {
+				issueRead = issueRequest(nextRank, nextBank, *busPacket,
+						readQueue);
+			}
 			if (issueWrite || issueRead) {
+				if ((*busPacket)->busPacketType == WRITE) {
+					pendingWR[nextRank][nextBank] = new BusPacket(WRITE,
+							(*busPacket)->physicalAddress, (*busPacket)->column,
+							(*busPacket)->row, (*busPacket)->rank,
+							(*busPacket)->bank, (*busPacket)->data,
+							dramsim_log);
+				}
 				return true;
 			}
 			writeQueue.nextRankAndBank(nextRank, nextBank);
 		} while (!(startingRank == nextRank && startingBank == nextBank));
 
-		if (writepriority) {
-			/*			if (writequeue.size() < 24 && !readqueue.empty()) {
-			 if (issueWC(nextRank, nextBank, *busPacket))
-			 return true;
-			 }*/
-			bool found = false;
-			vector<BusPacket *> &writequeue = writeQueue.getCommandQueue(
-					nextRank, nextBank);
-			vector<BusPacket *> &readqueue = readQueue.getCommandQueue(nextRank,
-								nextBank);
-			for (unsigned i = 0; i < writequeue.size(); i++) {
-				//if there is something going to that bank and row, then we don't want to send a PRE
-				issueWrite = writeQueue.isIssuable(writequeue[i]);
-				if (issueWrite) {
-					*busPacket = writequeue[i];
-					if (i > 0 && writequeue[i - 1]->busPacketType == ACTIVATE) {
-						// i is being returned, but i-1 is being thrown away, so must delete it here
-						delete (writequeue[i - 1]);
-						// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
-						writequeue.erase(writequeue.begin() + i - 1, writequeue.begin() + i + 1);
-					} else // there's no activate before this packet
-					{
-						//or just remove the one bus packet
-						writequeue.erase(writequeue.begin() + i);
-					}
-					return true;
-				}
-				if (bankStates[nextRank][nextBank].currentBankState == RowActive
-						&& writequeue[i]->bank == nextBank
-						&& writequeue[i]->row
-								== bankStates[nextRank][nextBank].openRowAddress) {
-					found = true;
-				}
-			}
-			if (!found) {
-				if (currentClockCycle
-						>= bankStates[nextRank][nextBank].nextPrecharge
-						&& bankStates[nextRank][nextBank].currentBankState
-								== RowActive) {
-					*busPacket = new BusPacket(PRECHARGE, 0, 0, 0, nextRank,
-							nextBank, 0, dramsim_log);
-					for (unsigned i = 0; i < readqueue.size(); i++) {
-						//if there is something going to that bank and row, then we don't want to send a PRE
-						if (readqueue[i]->bank == nextBank
-								&& readqueue[i]->row
-										== bankStates[nextRank][nextBank].openRowAddress) {
-							if (readqueue[i]->busPacketType
-									!= ACTIVATE) {
-								vector<BusPacket*>::iterator it =
-										readqueue.begin() + i;
-								BusPacket *bpacket = new BusPacket(
-										ACTIVATE,
-										readqueue[i]->physicalAddress,
-										readqueue[i]->column,
-										readqueue[i]->row,
-										readqueue[i]->rank,
-										readqueue[i]->bank,
-										readqueue[i]->data,
-										dramsim_log);
-								readqueue.insert(it, bpacket);
-							}
-							break;
-						}
-					}
-					return true;
-				}
-			}
-		}
 		if ((!issueWrite) && (!issueRead)) {
 			//issue the PRE to the bank
 			unsigned startingRank = nextRankPRE;
@@ -361,14 +381,14 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 						nextRankPRE, nextBankPRE);
 				if (bankStates[nextRankPRE][nextBankPRE].currentBankState
 						== RowActive) {
-					if (writequeue.size() > 16) {
+					if (writepriority[nextRankPRE][nextBankPRE]) {
 						for (unsigned i = 0; i < writequeue.size(); i++) {
 							//if there is something going to that bank and row, then we don't want to send a PRE
 							if (writequeue[i]->bank == nextBankPRE
 									&& writequeue[i]->row
 											== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
 								found = true;
-								return false;
+								break;
 							}
 						}
 						if (!found) {
@@ -415,7 +435,11 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 									//change to add a ACT to this write and PRE This bank
 									if (readqueue.empty()) {
 										found = true;
-										if (issueRequest(nextRankPRE,nextBankPRE,*busPacket,writeQueue)) {
+										if (issueRequest(nextRankPRE,
+												nextBankPRE, *busPacket,
+												writeQueue)) {
+											pendingWR[nextRankPRE][nextBankPRE] =
+													NULL;
 											return true;
 										}
 									} else if (writequeue[i]->busPacketType
@@ -445,6 +469,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 							sendingPRE = true;
 							*busPacket = new BusPacket(PRECHARGE, 0, 0, 0,
 									nextRankPRE, nextBankPRE, 0, dramsim_log);
+							pendingWR[nextRank][nextBank] = NULL;
 							return true;
 						}
 					}

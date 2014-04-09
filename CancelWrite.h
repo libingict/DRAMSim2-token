@@ -18,7 +18,8 @@ namespace DRAMSim {
 
 class CancelWrite: public SimulatorObject {
 public:
-	CancelWrite(vector<vector<BankState> > &states, ostream &dramsim_log,vector<Rank *> *&ranks);
+	CancelWrite(vector<vector<BankState> > &states, ostream &dramsim_log,
+			vector<Rank *> *&ranks);
 	virtual ~CancelWrite();
 	vector<vector<BankState> > &bankStates;
 	CommandQueue writeQueue;
@@ -31,10 +32,11 @@ public:
 	bool cancelwrite(BusPacket **busPacket);
 	bool issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 			CommandQueue &requestQueue);
-	bool issueWC(unsigned r, unsigned b, BusPacket *&busPakcet);
+	void issueWC(unsigned r, unsigned b);
 	void update();
 	bool isEmpty(unsigned rank);
 	vector<vector<BusPacket*> > pendingWR;
+	vector<vector<bool> > writepriority;
 
 	void print();
 private:
