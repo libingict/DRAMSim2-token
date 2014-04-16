@@ -13,7 +13,8 @@
 #include "Transaction.h"
 #include "SystemConfiguration.h"
 #include "SimulatorObject.h"
-
+#include "CancelWrite.h"
+#include "PredictionEntry.h"
 using namespace std;
 
 namespace DRAMSim {
@@ -34,29 +35,34 @@ public:
 	typedef vector<BankD> RankD;
 	typedef vector<RankD> Table;
 
-	PartialSETQueue(vector<vector<BankState> > &states, CommandQueue &cmdqueue,
-			ostream &dramsim_log);
+	typedef vector<vector<PredictionEntry*> > Predict2D;
+	vector<Predict2D> predictTable;
+
+	PartialSETQueue(vector<vector<BankState> > &states,
+			CancelWrite &canclewrite, ostream &dramsim_log);
 	virtual ~PartialSETQueue();
 	bool enqueue(BusPacket *newBusPacket);
 	void release(BusPacket *newBusPacket);
+	void iniPredictTable(unsigned rank, unsigned bank, uint64_t addr,
+			uint64_t rip);
 //	vector<Entry *> &getPSQueue(unsigned rank, unsigned bank);
 //	bool idlePredictisLong(unsigned rank,unsigned bank);
-	void evict(unsigned rank, unsigned bank);
-//	void emergePartialSET();
+	bool evict(unsigned &nextrank, unsigned &nextbank, BusPacket **busPacket);
 	void getIdleInterval(); //get the bank interval is long or short;
+	void print();
 	void update();
+
 	vector<vector<bool> > isFull;
 	//fields
 	Entry3D PSqueues; // 3D array of entry pointers
 	Table IdleTable;
 	vector<vector<BankState> > &bankStates;
-	CommandQueue &cmdQueue;
+	CancelWrite &cancelWrite;
 private:
 	static const unsigned PARTIAL_QUEUE_DEPTH = 128;
 	vector<vector<bool> > idle;
 	vector<vector<unsigned> > begin;
 	vector<vector<unsigned> > duration;
-	;
 };
 }
 #endif

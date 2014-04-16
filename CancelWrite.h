@@ -37,7 +37,10 @@ public:
 	bool isEmpty(unsigned rank);
 	vector<vector<BusPacket*> > pendingWR;
 	vector<vector<bool> > writepriority;
-
+	unsigned nextRank;
+	unsigned nextBank;
+	unsigned nextRankPRE;
+	unsigned nextBankPRE;
 	void print();
 private:
 	unsigned writeQueueDepth;
@@ -47,10 +50,7 @@ private:
 	vector<vector<unsigned> > writerequest;
 	ostream &dramsim_log;
 	vector<BusPacket *> pendingWrite;
-	unsigned nextRank;
-	unsigned nextBank;
-	unsigned nextRankPRE;
-	unsigned nextBankPRE;
+
 
 };
 }

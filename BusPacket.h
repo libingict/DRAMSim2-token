@@ -66,9 +66,10 @@ public:
 	unsigned rank;
 	uint64_t physicalAddress;
 	void *data;
+	uint64_t RIP;
 
 	//Functions
-	BusPacket(BusPacketType packtype, uint64_t physicalAddr, unsigned col, unsigned rw, unsigned r, unsigned b, void *dat, ostream &dramsim_log_);
+	BusPacket(BusPacketType packtype, uint64_t physicalAddr, unsigned col, unsigned rw, unsigned r, unsigned b, void *dat, ostream &dramsim_log_,uint64_t rip=0);
 
 	void print();
 	void print(uint64_t currentClockCycle, bool dataStart);

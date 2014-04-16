@@ -120,6 +120,12 @@ extern unsigned NUM_DEVICES;
 #define WRITE_TO_READ_DELAY_B (WL+BL/2+tWTR) //interbank
 #define WRITE_TO_READ_DELAY_R (WL+BL/2+tRTRS-RL) //interrank
 
+
+#define Partial_TO_PRE_DELAY (WL+BL/2+tWR)/8
+#define Partial_AUTOPRE_DELAY (WL+BL/2+SET+tRP)/8
+#define Partial_TO_READ_DELAY_B (WL+BL/2+tWTR)/8 //interbank
+#define Partial_TO_READ_DELAY_R (WL+BL/2+tRTRS-RL)/8 //interrank
+
 extern unsigned JEDEC_DATA_BUS_BITS;
 
 //Memory Controller related parameters
@@ -141,12 +147,7 @@ SET: the write latency for SET, 8x to DRAM tWR
 Partial-SET: short latency, equal to the DRAM tWR
 
 */
-#define PartialSET tWR
-#define SET (tWR*8)
-#ifdef PARTIAL
-#define WRITE_TO_PRE_DELAY (WL+BL/2+SET)
-#define WRITE_AUTOPRE_DELAY (WL+BL/2+SET+tRP)
-#endif
+
 enum TraceType
 {
 	k6,

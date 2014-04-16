@@ -62,8 +62,8 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_,
 		ostream &dramsim_log_) :
 		dramsim_log(dramsim_log_), bankStates(NUM_RANKS,
 				vector < BankState > (NUM_BANKS, dramsim_log)), commandQueue(
-				bankStates, dramsim_log_), psQueue(bankStates, commandQueue,
-				dramsim_log_), cancelWrite(bankStates, dramsim_log_,&*ranks), poppedBusPacket(
+				bankStates, dramsim_log_), cancelWrite(bankStates, dramsim_log_,
+				*&ranks), psQueue(bankStates, cancelWrite, dramsim_log_), poppedBusPacket(
 				NULL), csvOut(csvOut_), totalTransactions(0), refreshRank(0) {
 	//get handle on parent
 	parentMemorySystem = parent;
@@ -140,7 +140,6 @@ void MemoryController::returnReadData(const Transaction *trans) {
 //gives the memory controller a handle on the rank objects
 void MemoryController::attachRanks(vector<Rank *> *ranks) {
 	this->ranks = ranks;
-//	cancelWrite.ranks = ranks;
 }
 
 //PSqueue update
@@ -283,20 +282,37 @@ void MemoryController::update() {
 	BusPacket *poppedWCPacket;
 	BusPacket *poppedcmdPacket;
 	if (WRITECANCEL) {
-		popWCQueue = cancelWrite.cancelwrite(&poppedWCPacket);
-		popqueue = popWCQueue;
-		poppedBusPacket = poppedWCPacket;
+		popqueue = psQueue.evict(cancleWrite.nextRank, cancelWrite.nextBank,
+				&poppedBusPacket);
+		if (!popqueue) {
+			popWCQueue = cancelWrite.cancelwrite(&poppedWCPacket);
+			popqueue = popWCQueue;
+			poppedBusPacket = poppedWCPacket;
+		}
 	} else {
 		popqueue = commandQueue.pop(&poppedBusPacket);
 	}
 	if (popqueue) {
+		psQueue.iniPredictTable(poppedBusPacket->rank, poppedBusPacket->bank,
+				poppedBusPacket->physicalAddress, poppedBusPacket->RIP);
 		if (poppedBusPacket->busPacketType == WRITE
 				|| poppedBusPacket->busPacketType == WRITE_P) {
+			if (psQueue.enqueue(poppedBusPacket)) {
+				poppedBusPacket->busPacketType = PartialSET;
+			} else {
+				psQueue.release(poppedBusPacket);
+			}
+		}
+		if (poppedBusPacket->busPacketType == WRITE
+				|| poppedBusPacket->busPacketType == WRITE_P
+				|| poppedBusPacket->busPacketType == FullSET
+				|| poppedBusPacket->busPacketType == PartialSET) {
 			writeDataToSend.push_back(
 					new BusPacket(DATA, poppedBusPacket->physicalAddress,
 							poppedBusPacket->column, poppedBusPacket->row,
 							poppedBusPacket->rank, poppedBusPacket->bank,
-							poppedBusPacket->data, dramsim_log));
+							poppedBusPacket->data, dramsim_log,
+							poppedBusPacket->RIP));
 			writeDataCountdown.push_back(WL);
 		}
 		//test should be SET or Partial-SET
@@ -367,6 +383,8 @@ void MemoryController::update() {
 			break;
 		case WRITE_P:
 		case WRITE:
+		case PartialSET:
+		case FullSET:
 			if (poppedBusPacket->busPacketType == WRITE_P) {
 				bankStates[rank][bank].nextActivate = max(
 						currentClockCycle + WRITE_AUTOPRE_DELAY,
@@ -374,9 +392,15 @@ void MemoryController::update() {
 				bankStates[rank][bank].lastCommand = WRITE_P;
 				bankStates[rank][bank].stateChangeCountdown =
 						WRITE_TO_PRE_DELAY;
-			} else if (poppedBusPacket->busPacketType == WRITE) {
+			} else if (poppedBusPacket->busPacketType == WRITE
+					|| poppedBusPacket->busPacketType == FullSET) {
 				bankStates[rank][bank].nextPrecharge = max(
 						currentClockCycle + WRITE_TO_PRE_DELAY,
+						bankStates[rank][bank].nextPrecharge);
+				bankStates[rank][bank].lastCommand = WRITE;
+			} else if (poppedBusPacket->busPacketType == PartialSET) {
+				bankStates[rank][bank].nextPrecharge = max(
+						currentClockCycle + Partial_TO_PRE_DELAY,
 						bankStates[rank][bank].nextPrecharge);
 				bankStates[rank][bank].lastCommand = WRITE;
 			}
@@ -394,17 +418,31 @@ void MemoryController::update() {
 							bankStates[i][j].nextWrite = max(
 									currentClockCycle + BL / 2 + tRTRS,
 									bankStates[i][j].nextWrite);
-							bankStates[i][j].nextRead = max(
-									currentClockCycle + WRITE_TO_READ_DELAY_R,
-									bankStates[i][j].nextRead);
+							if (poppedBusPacket->busPacketType == PartialSET) {
+								bankStates[i][j].nextRead = max(
+										currentClockCycle
+												+ Partial_TO_READ_DELAY_R,
+										bankStates[i][j].nextRead);
+							} else {
+								bankStates[i][j].nextRead = max(
+										currentClockCycle
+												+ WRITE_TO_READ_DELAY_R,
+										bankStates[i][j].nextRead);
+							}
 						}
 					} else {
 						bankStates[i][j].nextWrite = max(
 								currentClockCycle + max(BL / 2, tCCD),
 								bankStates[i][j].nextWrite);
-						bankStates[i][j].nextRead = max(
-								currentClockCycle + WRITE_TO_READ_DELAY_B,
-								bankStates[i][j].nextRead);
+						if (poppedBusPacket->busPacketType == PartialSET) {
+							bankStates[i][j].nextRead = max(
+									currentClockCycle + Partial_TO_READ_DELAY_B,
+									bankStates[i][j].nextRead);
+						} else {
+							bankStates[i][j].nextRead = max(
+									currentClockCycle + WRITE_TO_READ_DELAY_B,
+									bankStates[i][j].nextRead);
+						}
 					}
 				}
 			}
@@ -418,7 +456,6 @@ void MemoryController::update() {
 				bankStates[rank][bank].nextWrite =
 						bankStates[rank][bank].nextActivate;
 			}
-
 			break;
 		case ACTIVATE:
 			//add energy to account for total
@@ -550,7 +587,7 @@ void MemoryController::update() {
 				BusPacket *command = new BusPacket(bpType, transaction->address,
 						newTransactionColumn, newTransactionRow,
 						newTransactionRank, newTransactionBank,
-						transaction->data, dramsim_log);
+						transaction->data, dramsim_log, transaction->RIP);
 				transactionQueue.erase(transactionQueue.begin() + i);
 				commandQueue.enqueue(ACTcommand);
 				commandQueue.enqueue(command);
@@ -580,7 +617,8 @@ void MemoryController::update() {
 			BusPacketType bpType = transaction->getBusPacketType();
 			BusPacket *command = new BusPacket(bpType, transaction->address,
 					newTransactionColumn, newTransactionRow, newTransactionRank,
-					newTransactionBank, transaction->data, dramsim_log);
+					newTransactionBank, transaction->data, dramsim_log,
+					transaction->RIP);
 			if (transaction->transactionType == DATA_READ) {
 				Transaction *trans = new Transaction(*transaction);
 				added = cancelWrite.addRequest(trans, command, found);
@@ -592,19 +630,7 @@ void MemoryController::update() {
 					pendingReadTransactions.push_back(transaction);
 					transactionQueue.erase(transactionQueue.begin() + i);
 					break;
-				} else {
-//					PRINT(
-//							"currentClockCycle is "<<currentClockCycle <<" bank is "<<newTransactionBank<<" nextBank is "<<cancelWrite.nextBank);
-//					cout << endl;
-//					for (size_t i = 0; i < NUM_RANKS; i++) {
-//						for (size_t j = 0; j < NUM_BANKS; j++) {
-//							bankStates[i][j].print(); //
-//						}
-//					}
-//					cancelWrite.readQueue.print();
-//					exit(-1);
 				}
-
 			} else if (transaction->transactionType == DATA_WRITE) {
 				added = cancelWrite.addRequest(transaction, command, found);
 				if (found) {
@@ -779,6 +805,7 @@ void MemoryController::update() {
 	}
 	commandQueue.step();
 	cancelWrite.update();
+	psQueue.update();
 
 }
 

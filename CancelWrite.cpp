@@ -62,11 +62,13 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 			readQueue.enqueue(
 					new BusPacket(ACTIVATE, buspacket->physicalAddress,
 							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->data, dramsim_log));
+							buspacket->bank, buspacket->data, dramsim_log,
+							buspacket->RIP));
 			readQueue.enqueue(
 					new BusPacket(READ, buspacket->physicalAddress,
 							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->data, dramsim_log));
+							buspacket->bank, buspacket->data, dramsim_log,
+							buspacket->RIP));
 
 			return true;
 		} else {
@@ -105,7 +107,8 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 			writeQueue.enqueue(
 					new BusPacket(ACTIVATE, buspacket->physicalAddress,
 							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->data, dramsim_log));
+							buspacket->bank, buspacket->data, dramsim_log,
+							buspacket->RIP));
 			writeQueue.enqueue(buspacket);
 			return true;
 		} else {
@@ -239,20 +242,6 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 								&& pendingWR[nextRank][nextBank]->busPacketType
 										== WRITE) {
 							//only these commands have an implicit state change
-							BusPacket *oldpacket =
-									new BusPacket(WRITE,
-											pendingWR[nextRank][nextBank]->physicalAddress,
-											pendingWR[nextRank][nextBank]->column,
-											pendingWR[nextRank][nextBank]->row,
-											pendingWR[nextRank][nextBank]->rank,
-											pendingWR[nextRank][nextBank]->bank,
-											pendingWR[nextRank][nextBank]->data,
-											dramsim_log);
-							BusPacket *command = new BusPacket(ACTIVATE,
-									oldpacket->physicalAddress,
-									oldpacket->column, oldpacket->row,
-									oldpacket->rank, oldpacket->bank,
-									oldpacket->data, dramsim_log);
 							vector<BusPacket*>::iterator it =
 									writequeue.begin();
 							writequeue.insert(it,
@@ -263,13 +252,18 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 											pendingWR[nextRank][nextBank]->rank,
 											pendingWR[nextRank][nextBank]->bank,
 											pendingWR[nextRank][nextBank]->data,
-											dramsim_log));
+											dramsim_log,
+											pendingWR[nextRank][nextBank]->RIP));
 							writequeue.insert(it,
 									new BusPacket(ACTIVATE,
-											oldpacket->physicalAddress,
-											oldpacket->column, oldpacket->row,
-											oldpacket->rank, oldpacket->bank,
-											oldpacket->data, dramsim_log));
+											pendingWR[nextRank][nextBank]->physicalAddress,
+											pendingWR[nextRank][nextBank]->column,
+											pendingWR[nextRank][nextBank]->row,
+											pendingWR[nextRank][nextBank]->rank,
+											pendingWR[nextRank][nextBank]->bank,
+											pendingWR[nextRank][nextBank]->data,
+											dramsim_log,
+											pendingWR[nextRank][nextBank]->RIP));
 						}
 						pendingWR[nextRank][nextBank] = NULL;
 						return true;
@@ -286,7 +280,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 									writequeue[i]->physicalAddress,
 									writequeue[i]->column, writequeue[i]->row,
 									writequeue[i]->rank, writequeue[i]->bank,
-									writequeue[i]->data, dramsim_log);
+									writequeue[i]->data, dramsim_log,
+									writequeue[i]->RIP);
 						}
 						if (i > 0
 								&& writequeue[i - 1]->busPacketType
@@ -334,7 +329,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 											readqueue[i]->row,
 											readqueue[i]->rank,
 											readqueue[i]->bank,
-											readqueue[i]->data, dramsim_log);
+											readqueue[i]->data, dramsim_log,
+											readqueue[i]->RIP);
 									readqueue.insert(it, bpacket);
 								}
 								break;
@@ -360,8 +356,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 					pendingWR[nextRank][nextBank] = new BusPacket(WRITE,
 							(*busPacket)->physicalAddress, (*busPacket)->column,
 							(*busPacket)->row, (*busPacket)->rank,
-							(*busPacket)->bank, (*busPacket)->data,
-							dramsim_log);
+							(*busPacket)->bank, (*busPacket)->data, dramsim_log,
+							(*busPacket)->RIP);
 				}
 				return true;
 			}
@@ -408,8 +404,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 												readqueue[i]->row,
 												readqueue[i]->rank,
 												readqueue[i]->bank,
-												readqueue[i]->data,
-												dramsim_log);
+												readqueue[i]->data, dramsim_log,
+												readqueue[i]->RIP);
 										readqueue.insert(it, bpacket);
 									}
 									break;
@@ -454,7 +450,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 												writequeue[i]->rank,
 												writequeue[i]->bank,
 												writequeue[i]->data,
-												dramsim_log);
+												dramsim_log,
+												writequeue[i]->RIP);
 										writequeue.insert(it, bpacket);
 										break;
 									}

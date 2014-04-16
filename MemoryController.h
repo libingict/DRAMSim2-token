@@ -86,8 +86,8 @@ private:
 	MemorySystem *parentMemorySystem;
 
 	CommandQueue commandQueue;
-	PartialSETQueue psQueue;	//add PartialSET queue
 	CancelWrite cancelWrite;		//cancelWrite
+	PartialSETQueue psQueue;	//add PartialSET queue
 
 	BusPacket *poppedBusPacket;
 	vector<unsigned>refreshCountdown;
