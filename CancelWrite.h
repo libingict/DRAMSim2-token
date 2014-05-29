@@ -35,22 +35,22 @@ public:
 	void issueWC(unsigned r, unsigned b);
 	void update();
 	bool isEmpty(unsigned rank);
-	vector<vector<BusPacket*> > pendingWR;
+	vector<vector<BusPacket*> > ongoingWrite;
+//	vector<vector<BusPacket*> > canceledWrite;
 	vector<vector<bool> > writepriority;
+	vector<vector<bool> > writecancel;
 	unsigned nextRank;
 	unsigned nextBank;
 	unsigned nextRankPRE;
 	unsigned nextBankPRE;
+//	vector<BusPacket *> canceledWrite;
 	void print();
 private:
 	unsigned writeQueueDepth;
-	vector<vector<bool> > writecancel;
 	vector<vector<unsigned> > writestarttime;
 	vector<vector<unsigned> > readrequest;
 	vector<vector<unsigned> > writerequest;
 	ostream &dramsim_log;
-	vector<BusPacket *> pendingWrite;
-
 
 };
 }

@@ -520,6 +520,9 @@ void CommandQueue::print() {
 		for (size_t i = 0; i < NUM_RANKS; i++) {
 			PRINT(" = Rank " << i);
 			for (size_t j = 0; j < NUM_BANKS; j++) {
+				if (queues[i][j].size() == 0) {
+					continue;
+				}
 				PRINT("    Bank "<< j << "   size : " << queues[i][j].size());
 
 				for (size_t k = 0; k < queues[i][j].size(); k++) {
@@ -529,15 +532,6 @@ void CommandQueue::print() {
 			}
 		}
 	}
-	/*	unsigned total = 0;
-	 for (unsigned r = 0; r != NUM_RANKS; r++) {
-	 for (unsigned b = 0; b != NUM_BANKS; b++) {
-	 PRINT(
-	 "Canceled Write Rank["<<r<<"] Bank["<<b<<"] is "<<canceledWrite[r][b]);
-	 total += canceledWrite[r][b];
-	 }
-	 }
-	 PRINT("Total Canceled Write is "<<total);*/
 }
 
 /** 
@@ -601,9 +595,9 @@ bool CommandQueue::isIssuable(BusPacket *busPacket) {
 						== bankStates[busPacket->rank][busPacket->bank].openRowAddress
 				&& rowAccessCounters[busPacket->rank][busPacket->bank]
 						< TOTAL_ROW_ACCESSES) {
-/*			if (WRITECANCEL) {
-				cancelWrite(busPacket);
-			}*/
+			/*			if (WRITECANCEL) {
+			 cancelWrite(busPacket);
+			 }*/
 			if (currentClockCycle
 					>= bankStates[busPacket->rank][busPacket->bank].nextRead) {
 
@@ -688,7 +682,7 @@ void CommandQueue::nextRankAndBank(unsigned &rank, unsigned &bank) {
 
 }
 
-void CommandQueue::cancelWrite(BusPacket *busPacket) {
+/*void CommandQueue::cancelWrite(BusPacket *busPacket) {
 	double completeFraction;
 	if (bankStates[busPacket->rank][busPacket->bank].lastCommand == ACTIVATE) {
 
@@ -704,17 +698,17 @@ void CommandQueue::cancelWrite(BusPacket *busPacket) {
 			bankStates[busPacket->rank][busPacket->bank].nextRead =
 					currentClockCycle;
 			//todo: insert the write into writeQueue.
-/*			vector<BusPacket*> &queue = getCommandQueue(busPacket->rank,
-					busPacket->bank);
-			BusPacket *activeCmd = new BusPacket(ACTIVATE,
-					busPacket->physicalAddress, busPacket->row,
-					busPacket->column, busPacket->rank, busPacket->bank, 0,
-					dramsim_log);
-			BusPacket *cmd = new BusPacket(WRITE, busPacket->physicalAddress,
-					busPacket->row, busPacket->column, busPacket->rank,
-					busPacket->bank, busPacket->data, dramsim_log);
-			queue.push_back(activeCmd);
-			queue.push_back(cmd);*/
+						vector<BusPacket*> &queue = getCommandQueue(busPacket->rank,
+			 busPacket->bank);
+			 BusPacket *activeCmd = new BusPacket(ACTIVATE,
+			 busPacket->physicalAddress, busPacket->row,
+			 busPacket->column, busPacket->rank, busPacket->bank, 0,
+			 dramsim_log);
+			 BusPacket *cmd = new BusPacket(WRITE, busPacket->physicalAddress,
+			 busPacket->row, busPacket->column, busPacket->rank,
+			 busPacket->bank, busPacket->data, dramsim_log);
+			 queue.push_back(activeCmd);
+			 queue.push_back(cmd);
 
 			if (currentClockCycle
 					< bankStates[busPacket->rank][busPacket->bank].nextRead) {
@@ -733,7 +727,7 @@ void CommandQueue::cancelWrite(BusPacket *busPacket) {
 						currentClockCycle;
 			}
 		}
-	}
+	}*/
 void CommandQueue::update() {
 //do nothing since pop() is effectively update(),
 //needed for SimulatorObject
