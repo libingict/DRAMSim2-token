@@ -24,7 +24,6 @@ PartialSETQueue::PartialSETQueue(vector<vector<BankState> > &states,
 		exit(0);
 	}
 	currentClockCycle = 0;
-	//CommandQueue::CommandQueue& cmdQueue=cmdqueue;
 	isFull = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
 	idle = vector < vector<bool> > (NUM_RANKS, vector<bool>(NUM_BANKS, false));
@@ -91,23 +90,27 @@ bool PartialSETQueue::enqueue(BusPacket *bspacket) {
 			Entry *entry = PSqueues[rank][bank][i];
 			if (entry->busPacket->physicalAddress
 					== bspacket->physicalAddress) {
-				if (PSqueues[rank][bank][i]->busPacket->busPacketType
-						== ACTIVATE && PSqueues[rank][bank].size() > 1
-						&& i < PSqueues[rank][bank].size() - 1) {
+				if (entry->busPacket->busPacketType == ACTIVATE
+						&& i < PSqueues[rank][bank].size() - 1
+						&& PSqueues[rank][bank][i + 1]->busPacket->physicalAddress
+								== bspacket->physicalAddress) {
+					delete (PSqueues[rank][bank][i]);
 					delete (PSqueues[rank][bank][i + 1]);
 					PSqueues[rank][bank].erase(PSqueues[rank][bank].begin() + i,
 							PSqueues[rank][bank].begin() + i + 2);
-				} else if (i != 0
+				} else if (i > 0
 						&& PSqueues[rank][bank][i - 1]->busPacket->busPacketType
 								== ACTIVATE
 						&& PSqueues[rank][bank][i - 1]->busPacket->physicalAddress
 								== bspacket->physicalAddress) {
 					delete (PSqueues[rank][bank][i - 1]);
+					delete (PSqueues[rank][bank][i]);
 					PSqueues[rank][bank].erase(
 							PSqueues[rank][bank].begin() + i - 1,
 							PSqueues[rank][bank].begin() + i + 1); //[queue.begin() + i - 1, queue.begin() + i + 1)
 				} else {
 					//the activated has popped.
+					delete (PSqueues[rank][bank][i]);
 					PSqueues[rank][bank].erase(
 							PSqueues[rank][bank].begin() + i);
 				}
@@ -126,14 +129,16 @@ bool PartialSETQueue::enqueue(BusPacket *bspacket) {
 								bspacket->column, bspacket->row, bspacket->rank,
 								bspacket->bank, bspacket->data, dramsim_log,
 								bspacket->RIP)));
-		PRINT(
-				" clock "<<currentClockCycle<<" en psqueue 0x"<<hex<<bspacket->physicalAddress<<dec<<" r["<<rank<<"] b["<<bank<<"] ");
+//		PRINT(
+//				"clock "<<currentClockCycle<<" en psqueue 0x"<<hex<<bspacket->physicalAddress<<dec<<" r["<<rank<<"] b["<<bank<<"] ");
 		if (PSqueues[rank][bank].size() >= PARTIAL_QUEUE_DEPTH) {
 			/*ERROR("== Error - Enqueued more than allowed in command queue");
 			 ERROR(
 			 "						Need to call .hasRoomFor(int numberToEnqueue, unsigned rank, unsigned bank) first");*/
 			//set the queue state full
 			isFull[rank][bank] = true;
+		} else {
+			isFull[rank][bank] = false;
 		}
 	} else {
 		ERROR("== Error - Unknown queuing structure");
@@ -171,26 +176,36 @@ void PartialSETQueue::release(BusPacket *bspacket) {
 						&& PSqueues[rank][bank][i - 1]->busPacket->physicalAddress
 								== bspacket->physicalAddress) { // the write request is paired
 					delete (PSqueues[rank][bank][i - 1]);
+					delete (PSqueues[rank][bank][i]);
 					PSqueues[rank][bank].erase(
 							PSqueues[rank][bank].begin() + i - 1,
 							PSqueues[rank][bank].begin() + i + 1); //[queue.begin() + i - 1, queue.begin() + i + 1)
 				} else if (PSqueues[rank][bank][i]->busPacket->busPacketType
-						== ACTIVATE && PSqueues[rank][bank].size() > 1
+						== ACTIVATE
+						&& PSqueues[rank][bank][i + 1]->busPacket->physicalAddress
+								== bspacket->physicalAddress
 						&& i < PSqueues[rank][bank].size() - 1) {
+					delete (PSqueues[rank][bank][i]);
 					delete (PSqueues[rank][bank][i + 1]);
 					// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
 					PSqueues[rank][bank].erase(PSqueues[rank][bank].begin() + i,
 							PSqueues[rank][bank].begin() + i + 2);
 				} else {
 					//the activated has popped.
+					delete (PSqueues[rank][bank][i]);
 					PSqueues[rank][bank].erase(
 							PSqueues[rank][bank].begin() + i);
 				}
 				PRINT(
-						" clock "<<currentClockCycle<<" same psqueue 0x"<<hex<<bspacket->physicalAddress<<dec<<" r["<<rank<<"] b["<<bank<<"] ");
+						"clock "<<currentClockCycle<<" same psQ 0x"<<hex<<bspacket->physicalAddress<<dec<<" r["<<rank<<"] b["<<bank<<"] ");
 				break;
 			}
 		}
+	}
+	if (PSqueues[rank][bank].size() >= PARTIAL_QUEUE_DEPTH) {
+		isFull[rank][bank] = true;
+	} else {
+		isFull[rank][bank] = false;
 	}
 }
 
@@ -213,24 +228,34 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 	bool issuable = false;
 	do {
 		Entry1D &psqueue = PSqueues[nextrank][nextbank];
-		if (!PSqueues[nextrank][nextbank].empty()) {
+		if (!psqueue.empty()) {
 			Entry* entry = psqueue[0];
-			if (entry->elapsedTime < 10000000) { //the oldest entry not reaches the threshold
-				if (isFull[nextrank][nextbank]) { //the queue is full; then has to issue FullSET
+			if (entry->elapsedTime < 1.0e7) { //the oldest entry not reaches the threshold
+				if (isFull[nextrank][nextbank]) { //the queue is full; then has to issue FullSET from the head of the queue.
 					if (bankStates[nextrank][nextbank].currentBankState
 							== Idle) {
-						//just issue PartialSET from the PartialSET Queue, out-of-order
+						//just issue Active from the PartialSET Queue, out-of-order
 						if (currentClockCycle
 								>= bankStates[nextrank][nextbank].nextActivate) {
 							for (size_t i = 0; i < psqueue.size(); i++) {
 								if (psqueue[i]->busPacket->busPacketType
 										== ACTIVATE) {
-									*busPacket = psqueue[i]->busPacket;
+									*busPacket =
+											new BusPacket(ACTIVATE,
+													psqueue[i]->busPacket->physicalAddress,
+													psqueue[i]->busPacket->column,
+													psqueue[i]->busPacket->row,
+													nextrank, nextbank,
+													psqueue[i]->busPacket->data,
+													dramsim_log,
+													psqueue[i]->busPacket->RIP);
+//									PRINTN("due full psQ act ");
 									issuable = true;
+									delete (psqueue[i]);
+									psqueue.erase(psqueue.begin() + i);
 									break;
 								}
 							}
-
 						}
 					} else if (bankStates[nextrank][nextbank].currentBankState
 							== RowActive) {
@@ -246,27 +271,55 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 									if (i > 0
 											&& psqueue[i - 1]->busPacket->busPacketType
 													== ACTIVATE) {
-										*busPacket = psqueue[i]->busPacket;
+										*busPacket =
+												new BusPacket(WRITE,
+														psqueue[i]->busPacket->physicalAddress,
+														psqueue[i]->busPacket->column,
+														psqueue[i]->busPacket->row,
+														psqueue[i]->busPacket->rank,
+														psqueue[i]->busPacket->bank,
+														psqueue[i]->busPacket->data,
+														dramsim_log,
+														psqueue[i]->busPacket->RIP);
 										delete (psqueue[i - 1]);
+										delete (psqueue[i]);
 										psqueue.erase(psqueue.begin() + i - 1,
 												psqueue.begin() + i + 1);
 									} else if (psqueue[i]->busPacket->busPacketType
 											== ACTIVATE && psqueue.size() > 1
-											&& i < psqueue.size() - 1) {
-										*busPacket = psqueue[i + 1]->busPacket;
+											&& i < psqueue.size() - 1
+											&& psqueue[i + 1]->busPacket->physicalAddress
+													== entry->busPacket->physicalAddress) {
+										*busPacket =
+												new BusPacket(WRITE,
+														psqueue[i + 1]->busPacket->physicalAddress,
+														psqueue[i + 1]->busPacket->column,
+														psqueue[i + 1]->busPacket->row,
+														psqueue[i + 1]->busPacket->rank,
+														psqueue[i + 1]->busPacket->bank,
+														psqueue[i + 1]->busPacket->data,
+														dramsim_log,
+														psqueue[i + 1]->busPacket->RIP);
+										delete (psqueue[i]);
 										delete (psqueue[i + 1]);
 										// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
 										psqueue.erase(psqueue.begin() + i,
 												psqueue.begin() + i + 2);
 									} else { // there's no activate before this packet
 											 //or just remove the one bus packet
-										*busPacket = psqueue[i]->busPacket;
+										*busPacket =
+												new BusPacket(WRITE,
+														psqueue[i]->busPacket->physicalAddress,
+														psqueue[i]->busPacket->column,
+														psqueue[i]->busPacket->row,
+														psqueue[i]->busPacket->rank,
+														psqueue[i]->busPacket->bank,
+														psqueue[i]->busPacket->data,
+														dramsim_log,
+														psqueue[i]->busPacket->RIP);
+										delete psqueue[i];
 										psqueue.erase(psqueue.begin() + i);
 									}
-									/*								PRINT(
-									 "Active CurrentClockCycle is " << currentClockCycle);
-									 (*busPacket)->print();
-									 bankStates[nextrank][nextbank].print();*/
 									break;
 								}
 							}
@@ -285,47 +338,49 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 								if (readqueue[i]->bank == nextbank
 										&& readqueue[i]->row
 												== bankStates[nextrank][nextbank].openRowAddress) {
-									if (readqueue[i]->busPacketType
-											!= ACTIVATE) {
-										if (currentClockCycle
-												>= bankStates[nextrank][nextbank].nextRead) {
-											*busPacket = readqueue[i];
-											readqueue.erase(
-													readqueue.begin() + i);
-											issuable = true;
-										}
-									}
+									/*									if (readqueue[i]->busPacketType
+									 != ACTIVATE) {
+									 if (currentClockCycle
+									 >= bankStates[nextrank][nextbank].nextRead) {
+									 *busPacket = readqueue[i];//if should issue read request from readqueue
+									 readqueue.erase(
+									 readqueue.begin() + i);
+									 issuable = true;
+									 }
+									 }*/
 									found = true;
 									break;
 								}
 							}
 							if (!found) {
 								for (unsigned i = 0; i < writequeue.size();
-										i++) { //assure no dangling READ
-									//if there is something going to that bank and row, then we don't want to send a PRE
+										i++) { //assure no dangling WRITE
+									//if there is something going to that bank and row, then we don't want to send a PRE,if should leave it to cancelwrite?
 									if (writequeue[i]->bank == nextbank
 											&& writequeue[i]->row
 													== bankStates[nextrank][nextbank].openRowAddress) {
-										if (writequeue[i]->busPacketType
-												!= ACTIVATE) {
-											if (currentClockCycle
-													>= bankStates[nextrank][nextbank].nextWrite) {
-												*busPacket = writequeue[i];
-												writequeue.erase(
-														writequeue.begin() + i);
-												return true;
-											}
-										}
+										/*										if (writequeue[i]->busPacketType
+										 != ACTIVATE) {
+										 if (currentClockCycle
+										 >= bankStates[nextrank][nextbank].nextWrite) {
+										 *busPacket = writequeue[i];
+										 writequeue.erase(
+										 writequeue.begin() + i);
+										 return true;
+										 }
+										 }*/
 										found = true;
 										break;
 									}
 								}
 							}
-							if (!issuable
+							if (!issuable && (!found)
 									&& currentClockCycle
 											>= bankStates[nextrank][nextbank].nextPrecharge) {
 								*busPacket = new BusPacket(PRECHARGE, 0, 0, 0,
 										nextrank, nextbank, 0, dramsim_log);
+//								PRINT(
+//										"clock "<<currentClockCycle<<" due full psQ pre r["<<nextrank<<"] b["<<nextbank<<"]");
 								issuable = true;
 							}
 						}
@@ -333,10 +388,22 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 					if (issuable) {
 						if ((*busPacket)->busPacketType == WRITE) {
 							(*busPacket)->busPacketType = FullSET;
-							isFull[nextrank][nextbank] = false;
-							PRINTN("psqueue size is "<<psqueue.size()<<" ");
+							if (PSqueues[nextrank][nextbank].size()
+									>= PARTIAL_QUEUE_DEPTH) {
+								/*ERROR("== Error - Enqueued more than allowed in command queue");
+								 ERROR(
+								 "						Need to call .hasRoomFor(int numberToEnqueue, unsigned rank, unsigned bank) first");*/
+								//set the queue state full
+								isFull[nextrank][nextbank] = true;
+							} else {
+								isFull[nextrank][nextbank] = false;
+							}
+//							PRINTN("due to full psQ ");
+//							(*busPacket)->print();
 						}
 						return true;
+					} else {
+						return false;
 					}
 				}
 			} else {			// if the oldest reach the retention time
@@ -344,12 +411,27 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 					//just issue PartialSET from the PartialSET Queue, out-of-order
 					if (currentClockCycle
 							>= bankStates[nextrank][nextbank].nextActivate) {
-						if (psqueue[0]->busPacket->busPacketType == ACTIVATE) {
-							*busPacket = psqueue[0]->busPacket;
-//							psqueue.push_back(new Entry(psqueue[0]->busPacket));
-							//(*busPacket)->busPacketType = PartialSET;
-							psqueue.erase(psqueue.begin());
-							return true;
+						for (size_t i = 0; i < psqueue.size(); i++) {
+							if (psqueue[i]->elapsedTime < 1.0e7) {
+								break;
+							}
+							if (psqueue[i]->busPacket->busPacketType
+									== ACTIVATE) {
+//								PRINTN("due retention psQ idle ");
+								*busPacket = new BusPacket(ACTIVATE,
+										psqueue[i]->busPacket->physicalAddress,
+										psqueue[i]->busPacket->column,
+										psqueue[i]->busPacket->row,
+										psqueue[i]->busPacket->rank,
+										psqueue[i]->busPacket->bank,
+										psqueue[i]->busPacket->data,
+										dramsim_log,
+										psqueue[i]->busPacket->RIP);
+//								(*busPacket)->print();
+								delete (psqueue[i]);
+								psqueue.erase(psqueue.begin() + i);
+								return true;
+							}
 						}
 					}
 				} else if (bankStates[nextrank][nextbank].currentBankState
@@ -357,25 +439,57 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 					//check the writeQueue and readQueue ,if there is same open row, issue the request and Precharge.
 					//or cancel the request and Precharge
 					bool foundopen = false;
-					if (entry->busPacket->row
-							== bankStates[nextrank][nextbank].openRowAddress) {
-						foundopen = true;
-						if (currentClockCycle
-								>= bankStates[nextrank][nextbank].nextWrite) {
-							if (psqueue[0]->busPacket->busPacketType == ACTIVATE
-									&& psqueue[1]->busPacket->row
-											== entry->busPacket->row) {
-								*busPacket = psqueue[1]->busPacket;
-								delete (psqueue[0]);
-								psqueue.erase(psqueue.begin(),
-										psqueue.begin() + 1);
+					for (size_t i = 0; i < psqueue.size(); i++) {
+						Entry* entry = psqueue[i];
+						if (entry->busPacket->row
+								== bankStates[nextrank][nextbank].openRowAddress) {
+							foundopen = true;
+							if (entry->elapsedTime < 1.0e7) {
+								break;
+							}
+							if (currentClockCycle
+									>= bankStates[nextrank][nextbank].nextWrite) {
+								if (psqueue[i]->busPacket->busPacketType
+										== ACTIVATE
+										&& psqueue[i + 1]->busPacket->row
+												== entry->busPacket->row) {
+									*busPacket =
+											new BusPacket(WRITE,
+													psqueue[i + 1]->busPacket->physicalAddress,
+													psqueue[i + 1]->busPacket->column,
+													psqueue[i + 1]->busPacket->row,
+													psqueue[i + 1]->busPacket->rank,
+													psqueue[i + 1]->busPacket->bank,
+													psqueue[i + 1]->busPacket->data,
+													dramsim_log,
+													psqueue[i + 1]->busPacket->RIP);
+									delete (psqueue[i]);
+									delete (psqueue[i + 1]);
+									psqueue.erase(psqueue.begin() + i,
+											psqueue.begin() + i + 2);
+								} else { // there's no activate before this packet
+									//or just remove the one bus packet
+									*busPacket =
+											new BusPacket(WRITE,
+													psqueue[i]->busPacket->physicalAddress,
+													psqueue[i]->busPacket->column,
+													psqueue[i]->busPacket->row,
+													psqueue[i]->busPacket->rank,
+													psqueue[i]->busPacket->bank,
+													psqueue[i]->busPacket->data,
+													dramsim_log,
+													psqueue[i]->busPacket->RIP);
+									delete (psqueue[i]);
+									psqueue.erase(psqueue.begin() + i);
+								}
 								psqueue.push_back(
 										new Entry(
 												new BusPacket(ACTIVATE,
 														(*busPacket)->physicalAddress,
 														(*busPacket)->column,
 														(*busPacket)->row,
-														nextrank, nextbank,
+														(*busPacket)->rank,
+														(*busPacket)->bank,
 														(*busPacket)->data,
 														dramsim_log,
 														(*busPacket)->RIP)));
@@ -385,24 +499,16 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 														(*busPacket)->physicalAddress,
 														(*busPacket)->column,
 														(*busPacket)->row,
-														nextrank, nextbank,
+														(*busPacket)->rank,
+														(*busPacket)->bank,
 														(*busPacket)->data,
 														dramsim_log,
 														(*busPacket)->RIP)));
-							} else { // there's no activate before this packet
-								//or just remove the one bus packet
-								*busPacket = psqueue[0]->busPacket;
-								psqueue.erase(psqueue.begin());
-								psqueue.push_back(new Entry((*busPacket)));
+//								PRINTN("due retention psQ act ");
+//								(*busPacket)->print();
+								(*busPacket)->busPacketType = PartialSET;
+								return true;
 							}
-							//*busPacket = psqueue[0]->busPacket;
-							(*busPacket)->busPacketType = PartialSET;
-							/*								PRINT(
-							 "RetentionActive CurrentClockCycle is " << currentClockCycle);
-							 (*busPacket)->print();
-							 bankStates[nextrank][nextbank].print();*/
-
-							return true;
 						}
 					}
 					//check the writeQueue and readQueue ,if there is same open row, issue the request and Precharge.
@@ -410,6 +516,10 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 					if (!foundopen) {
 						if (currentClockCycle
 								>= bankStates[nextrank][nextbank].nextPrecharge) {
+							*busPacket = new BusPacket(PRECHARGE, 0, 0, 0,
+									nextrank, nextbank, 0, dramsim_log);
+//							PRINT(
+//									"due retention psQ pre r["<<nextrank<<"] b["<<nextbank<<"]");
 							vector<BusPacket *> &writequeue =
 									cancelWrite.writeQueue.getCommandQueue(
 											nextrank, nextbank);
@@ -443,7 +553,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 							}
 							if (!found) {
 								for (unsigned w = 0; w < writequeue.size();
-										w++) { //assure no dangling READ
+										w++) { //assure no dangling WRITE,since the retention entry has the highest priority
 									if (writequeue[w]->bank == nextbank
 											&& writequeue[w]->row
 													== bankStates[nextrank][nextbank].openRowAddress) {
@@ -462,12 +572,11 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 															dramsim_log,
 															writequeue[w]->RIP));
 										}
+										found = true;
 										break;
 									}
 								} //end for writequeue
 							} // !found
-							*busPacket = new BusPacket(PRECHARGE, 0, 0, 0,
-									nextrank, nextbank, 0, dramsim_log);
 							return true;
 						} //nextPrecharge
 					} //!foundopen
@@ -539,10 +648,12 @@ void PartialSETQueue::print() {
 		}
 	} else if (queuingStructure == PerRankPerBank) {
 		PRINT("\n== Printing Per Rank, Per Bank Queue");
-
 		for (size_t i = 0; i < NUM_RANKS; i++) {
 			PRINT(" = Rank " << i);
 			for (size_t j = 0; j < NUM_BANKS; j++) {
+				if (PSqueues[i][j].size() == 0) {
+					continue;
+				}
 				PRINT("    Bank "<< j << "   size : " << PSqueues[i][j].size());
 				for (size_t k = 0; k < PSqueues[i][j].size(); k++) {
 					PRINTN("       " << k << "]");
@@ -574,6 +685,6 @@ void PartialSETQueue::update() {
 			}
 		}
 	}
-	getIdleInterval();
+	//getIdleInterval();
 }
 

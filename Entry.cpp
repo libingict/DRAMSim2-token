@@ -9,4 +9,10 @@ Entry::Entry(BusPacket *buspacket) :
 		busPacket(buspacket), elapsedTime(0) {
 
 }
+Entry::~Entry() {
+	if (buspacket != NULL) {
+		delete buspacket;
+		buspacket = NULL;
+	}
+}
 

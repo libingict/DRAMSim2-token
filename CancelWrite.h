@@ -47,7 +47,6 @@ public:
 	void print();
 private:
 	unsigned writeQueueDepth;
-	vector<vector<unsigned> > writestarttime;
 	vector<vector<unsigned> > readrequest;
 	vector<vector<unsigned> > writerequest;
 	ostream &dramsim_log;

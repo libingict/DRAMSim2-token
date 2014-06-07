@@ -164,6 +164,7 @@ void MemoryController::update() {
 
 	//PRINT(" ------------------------- [" << currentClockCycle << "] -------------------------");
 	//update bank states
+	//PRINT("STEP 0");
 	for (size_t i = 0; i < NUM_RANKS; i++) {
 		for (size_t j = 0; j < NUM_BANKS; j++) {
 			if (bankStates[i][j].stateChangeCountdown > 0) {
@@ -182,19 +183,16 @@ void MemoryController::update() {
 					case REFRESH:
 					case PRECHARGE:
 						bankStates[i][j].currentBankState = Idle;
-						/*						PRINTN(
-						 "Rank "<<i<<"Bank "<<j<<"enter Idle state at "<<currentClockCycle<<"cycle")
-						 ;*/
 						break;
 					case WRITE:
 						if (parentMemorySystem->WriteDataDone != NULL) {
 							if (cancelWrite.ongoingWrite[i][j] != NULL) {
-//								PRINT(
-//										"clock "<<currentClockCycle<<" WRITE ACK writeP ongoing is 0x"<<hex<<cancelWrite.ongoingWrite[i][j]->physicalAddress<<dec<<" then ongoing NULL");
+//							PRINT("clock "<<currentClockCycle<<" WRITE ACK writeP ongoing is 0x"<<hex<<cancelWrite.ongoingWrite[i][j]->physicalAddress<<dec<<" then ongoing NULL");
 								(*parentMemorySystem->WriteDataDone)(
 										parentMemorySystem->systemID,
 										cancelWrite.ongoingWrite[i][j]->physicalAddress,
 										currentClockCycle);
+								delete cancelWrite.ongoingWrite[i][j];
 								cancelWrite.ongoingWrite[i][j] = NULL;
 							}
 						}
@@ -207,12 +205,12 @@ void MemoryController::update() {
 			}
 		}
 	}
-
+    //PRINT("STEP 1");
 	//check for outgoing command packets and handle countdowns
 	if (outgoingCmdPacket != NULL) {
 		cmdCyclesLeft--;
 		if (cmdCyclesLeft == 0) //packet is ready to be received by rank
-				{
+		{
 			(*ranks)[outgoingCmdPacket->rank]->receiveFromBus(
 					outgoingCmdPacket);
 			outgoingCmdPacket = NULL;
@@ -229,9 +227,7 @@ void MemoryController::update() {
 					outgoingDataPacket);
 			outgoingDataPacket = NULL;
 		}
-
 	}
-
 //if any outstanding write data needs to be sent
 //and the appropriate amount of time has passed (WL)
 //then send data on bus
@@ -286,51 +282,35 @@ void MemoryController::update() {
 //pass a pointer to a poppedBusPacket
 
 //function returns true if there is something valid in poppedBusPacket
+	//PRINT("STEP 2");
 	bool popWCQueue = false;
 	bool popcmdQueue = false;
 	bool popqueue = false;
 	BusPacket *poppedWCPacket;
 	BusPacket *poppedcmdPacket;
 	if (WRITECANCEL) {
-//		popqueue = psQueue.evict(cancelWrite.nextRank, cancelWrite.nextBank,
-//				&poppedBusPacket);
-//		if (!popqueue) {
-		popWCQueue = cancelWrite.cancelwrite(&poppedWCPacket); //then we could know if the last write is canceled.
-		popqueue = popWCQueue;
-		poppedBusPacket = poppedWCPacket;
-//		}
+		popqueue = psQueue.evict(cancelWrite.nextRank, cancelWrite.nextBank,
+				&poppedBusPacket);
+		if (!popqueue) {
+			popWCQueue = cancelWrite.cancelwrite(&poppedWCPacket); //then we could know if the last write is canceled.
+			popqueue = popWCQueue;
+			poppedBusPacket = poppedWCPacket;
+		}
 	} else {
 		popqueue = commandQueue.pop(&poppedBusPacket);
 	}
+	//PRINT("STEP 21");
 	if (popqueue) {
 //		psQueue.iniPredictTable(poppedBusPacket->rank, poppedBusPacket->bank,
 //				poppedBusPacket->physicalAddress, poppedBusPacket->RIP);
-		if (poppedBusPacket->busPacketType == WRITE
-				|| poppedBusPacket->busPacketType == WRITE_P) {
-			if (psQueue.enqueue(poppedBusPacket)) { //if the readqueue is empty not enqueue
-				poppedBusPacket->busPacketType = PartialSET;
-			} else {
-				psQueue.release(poppedBusPacket); //not enqueue, then SET, check the same entry in PSqueue, and delete it.
-			}
-		}
-
 		unsigned rank = poppedBusPacket->rank;
 		unsigned bank = poppedBusPacket->bank;
 		if (poppedBusPacket->busPacketType == WRITE
-				|| poppedBusPacket->busPacketType == WRITE_P
-				|| poppedBusPacket->busPacketType == FullSET
-				|| poppedBusPacket->busPacketType == PartialSET) {
-			writeDataToSend.push_back(
-					new BusPacket(DATA, poppedBusPacket->physicalAddress,
-							poppedBusPacket->column, poppedBusPacket->row, rank,
-							bank, poppedBusPacket->data, dramsim_log,
-							poppedBusPacket->RIP));
-			writeDataCountdown.push_back(WL);
+				|| poppedBusPacket->busPacketType == WRITE_P) { //requests from writequeue
 			if (parentMemorySystem->WriteDataDone != NULL) {
-				if ((!cancelWrite.writepriority[rank][bank])
-						&& cancelWrite.ongoingWrite[rank][bank] == NULL) {
-//					PRINT(
-//							"WRITE ACK readpriority 0x"<<hex<<poppedBusPacket->physicalAddress<<dec);
+				if (!cancelWrite.writepriority[rank][bank]) {
+					//	PRINT(
+					//			"WRITE ACK readpriority 0x"<<hex<<poppedBusPacket->physicalAddress<<dec);
 					(*parentMemorySystem->WriteDataDone)(
 							parentMemorySystem->systemID,
 							poppedBusPacket->physicalAddress,
@@ -340,36 +320,69 @@ void MemoryController::update() {
 						&& cancelWrite.ongoingWrite[rank][bank] != NULL
 						&& cancelWrite.ongoingWrite[rank][bank]->physicalAddress
 								!= poppedBusPacket->physicalAddress) {
-//					PRINT(
-//							"clock "<<currentClockCycle<<" WRITE ACK writeP write ongoing is 0x"<<hex<<cancelWrite.ongoingWrite[rank][bank]->physicalAddress<<dec<<" then ongoing is "<<hex<<poppedBusPacket->physicalAddress<<dec);
+					//PRINT(
+					//		"clock "<<currentClockCycle<<" WRITE ACK writeP write ongoing is 0x"<<hex<<cancelWrite.ongoingWrite[rank][bank]->physicalAddress<<dec<<" then ongoing is "<<hex<<poppedBusPacket->physicalAddress<<dec);
 					(*parentMemorySystem->WriteDataDone)(
 							parentMemorySystem->systemID,
 							cancelWrite.ongoingWrite[rank][bank]->physicalAddress,
 							currentClockCycle);
 				}
 			}
+/*			if (psQueue.enqueue(poppedBusPacket)) { //if the readqueue is empty not enqueue
+				poppedBusPacket->busPacketType = PartialSET;
+			} else {
+				psQueue.release(poppedBusPacket); //not enqueue, then SET, check the same entry in PSqueue, and delete it.
+			}*/
+			if (cancelWrite.writepriority[rank][bank]) {
+				switch (poppedBusPacket->busPacketType) {
+				case WRITE:
+					bankStates[rank][bank].stateChangeCountdown =
+							WRITE_TO_READ_DELAY_B;
+					break;
+				case PartialSET:
+					bankStates[rank][bank].stateChangeCountdown =
+					Partial_TO_READ_DELAY_B;
+					break;
+				default:
+					break;
+				}
+				cancelWrite.ongoingWrite[rank][bank] = new BusPacket(WRITE,
+						poppedBusPacket->physicalAddress,
+						poppedBusPacket->column, poppedBusPacket->row,
+						poppedBusPacket->rank, poppedBusPacket->bank,
+						poppedBusPacket->data, dramsim_log,
+						poppedBusPacket->RIP);
+			}
+
+		}
+//		PRINTN("MC 1 366 0x" <<  hex << poppedBusPacket << dec);
+//		poppedBusPacket->print();
+		if (poppedBusPacket->busPacketType == WRITE
+				|| poppedBusPacket->busPacketType == WRITE_P
+				|| poppedBusPacket->busPacketType == FullSET
+				|| poppedBusPacket->busPacketType == PartialSET) {
+			BusPacket* bp = new BusPacket(DATA, poppedBusPacket->physicalAddress,
+							poppedBusPacket->column, poppedBusPacket->row, rank,
+							bank, poppedBusPacket->data, dramsim_log,
+							poppedBusPacket->RIP);
+//			PRINTN("new buspacket 0x" << hex << bp << dec);
+			writeDataToSend.push_back(bp);
+			writeDataCountdown.push_back(WL);
 		} else {
 			if (parentMemorySystem->WriteDataDone != NULL) {
-				if ((!cancelWrite.writepriority[rank][bank])
-						&& (cancelWrite.ongoingWrite[rank][bank] != NULL)
-						&& (cancelWrite.writecancel[rank][bank])) {
-//					PRINT(
-//							"writeC ongoing is 0x"<<hex<<cancelWrite.ongoingWrite[rank][bank]->physicalAddress<<dec<<" then ongoing NULL");
-					cancelWrite.ongoingWrite[rank][bank] = NULL;
-				}
 				if (cancelWrite.ongoingWrite[rank][bank] != NULL
 						&& (!cancelWrite.writecancel[rank][bank])) {
-//					PRINT(
-//							"WRITE ACK writeP no write ongoing is 0x"<<hex<<cancelWrite.ongoingWrite[rank][bank]->physicalAddress<<dec<<" then ongoing NULL");
 					(*parentMemorySystem->WriteDataDone)(
 							parentMemorySystem->systemID,
 							cancelWrite.ongoingWrite[rank][bank]->physicalAddress,
 							currentClockCycle);
+					delete cancelWrite.ongoingWrite[rank][bank];
 					cancelWrite.ongoingWrite[rank][bank] = NULL;
 				}
 			}
 		}
-
+//		PRINTN("MC 1 396 0x" << hex << poppedBusPacket << dec);
+		poppedBusPacket->print();
 		//test should be SET or Partial-SET
 		//
 		//update each bank's state based on the command that was just popped out of the command queue
@@ -495,34 +508,7 @@ void MemoryController::update() {
 					}
 				}
 			}
-			if ((poppedBusPacket->busPacketType == WRITE
-					|| poppedBusPacket->busPacketType == WRITE_P
-					|| poppedBusPacket->busPacketType == FullSET
-					|| poppedBusPacket->busPacketType == PartialSET)
-					&& cancelWrite.writepriority[rank][bank]) {
-				switch (poppedBusPacket->busPacketType) {
-				case WRITE_P:
-				case WRITE:
-				case FullSET:
-					bankStates[rank][bank].stateChangeCountdown =
-							WRITE_TO_READ_DELAY_B;
-					break;
-				case PartialSET:
-					bankStates[rank][bank].stateChangeCountdown =
-					Partial_TO_READ_DELAY_B;
-					break;
-				default:
-					break;
-				}
-				cancelWrite.ongoingWrite[rank][bank] = new BusPacket(WRITE,
-						poppedBusPacket->physicalAddress,
-						poppedBusPacket->column, poppedBusPacket->row,
-						poppedBusPacket->rank, poppedBusPacket->bank,
-						poppedBusPacket->data, dramsim_log,
-						poppedBusPacket->RIP);
-				PRINT(
-						"clock "<<currentClockCycle<<" writeP ongoing is 0x"<<hex<<poppedBusPacket->physicalAddress<<dec<<" countdown is "<<bankStates[rank][bank].stateChangeCountdown);
-			}
+
 			//set read and write to nextActivate so the state table will prevent a read or write
 			//  being issued (in cq.isIssuable())before the bank state has been changed because of the
 			//  auto-precharge associated with this command
@@ -612,27 +598,6 @@ void MemoryController::update() {
 		cmdCyclesLeft = tCMD;
 
 	}
-	/*	if (!popqueue) {
-	 if (parentMemorySystem->WriteDataDone != NULL) {
-	 for (size_t i = 0; i < NUM_RANKS; i++) {
-	 for (size_t j = 0; j < NUM_BANKS; j++) {
-	 //if counter has reached 0, change state
-	 if (bankStates[i][j].lastCommand == WRITE
-	 && bankStates[i][j].stateChangeCountdown == 0
-	 && cancelWrite.writepriority[i][j]
-	 && cancelWrite.pendingWR[i][j] != NULL) {
-	 PRINT(
-	 "WRITE ACK timeout 0x"<<hex<<cancelWrite.pendingWR[i][j]->physicalAddress<<dec);
-	 (*parentMemorySystem->WriteDataDone)(
-	 parentMemorySystem->systemID,
-	 cancelWrite.pendingWR[i][j]->physicalAddress,
-	 currentClockCycle);
-	 cancelWrite.pendingWR[i][j] == NULL;
-	 }
-	 }
-	 }
-	 }
-	 }*/
 //if not find issuable cmd due to the current write issue, then cancel the current write
 	for (size_t i = 0; i < transactionQueue.size(); i++) {
 		//pop off top transaction from queue
@@ -735,8 +700,8 @@ void MemoryController::update() {
 					totalWritesPerBank[SEQUENTIAL(
 							newTransactionRank, newTransactionBank)]++;
 					if (parentMemorySystem->WriteDataDone != NULL) {
-						PRINT(
-								"WRITE ACK same 0x"<<hex<<transaction->address<<dec);
+						//PRINT(
+						//		"WRITE ACK same 0x"<<hex<<transaction->address<<dec);
 						(*parentMemorySystem->WriteDataDone)(
 								parentMemorySystem->systemID,
 								transaction->address, currentClockCycle);
@@ -744,7 +709,7 @@ void MemoryController::update() {
 					}
 				}
 				if (added) {
-					PRINT("added Transaction Write "<<*transaction);
+					//PRINT("added Transaction Write "<<*transaction);
 					delete transaction;
 					transactionQueue.erase(transactionQueue.begin() + i);
 					break;
@@ -1116,12 +1081,9 @@ void MemoryController::printStats(bool finalStats) {
 
 	PRINT(
 			endl<< " == Pending Transactions : "<<pendingReadTransactions.size()<<" ("<<currentClockCycle<<")==");
-	/*
-	 for(size_t i=0;i<pendingReadTransactions.size();i++)
-	 {
-	 PRINT( i << "] I've been waiting for "<<currentClockCycle-pendingReadTransactions[i].timeAdded<<endl;
-	 }
-	 */
+	PRINT(
+			endl<< " == PartialSET Transactions : ");
+	psQueue.print();
 #ifdef LOG_OUTPUT
 	dramsim_log.flush();
 #endif

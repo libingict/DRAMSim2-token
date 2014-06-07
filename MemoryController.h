@@ -136,6 +136,8 @@ public:
 	vector< uint64_t > burstEnergy;
 	vector< uint64_t > actpreEnergy;
 	vector< uint64_t > refreshEnergy;
+	vector< uint64_t > writeEnergypercell;
+	vector< uint64_t > readEnergypercell;
 
 };
 }
