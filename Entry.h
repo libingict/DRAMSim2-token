@@ -20,7 +20,7 @@ public:
 	BusPacket *busPacket;
 	unsigned elapsedTime;
 	Entry(BusPacket *bspacket);
-
+	virtual ~Entry();
 //	Entry(const Entry&);
 };
 
