@@ -27,6 +27,7 @@ public:
 	vector<Rank*> *&ranks;
 	bool addRequest(Transaction *transaction, BusPacket *buspacket,
 			bool &found);
+
 //	BusPacket* returnReadTransaction(BusPacket* readPacket,
 //			CommandQueue& cmdqueue);
 	bool cancelwrite(BusPacket **busPacket);
@@ -43,12 +44,12 @@ public:
 	unsigned nextBank;
 	unsigned nextRankPRE;
 	unsigned nextBankPRE;
+	vector<vector<uint64_t> > coutcanceledwrite; //record the Count of Canceled Write
 //	vector<BusPacket *> canceledWrite;
 	void print();
 private:
 	unsigned writeQueueDepth;
-	vector<vector<unsigned> > readrequest;
-	vector<vector<unsigned> > writerequest;
+//	vector<vector<uint64_t> > readcout;
 	ostream &dramsim_log;
 
 };

@@ -17,10 +17,10 @@ CancelWrite::CancelWrite(vector<vector<BankState> > &states,
 	currentClockCycle = 0;
 	writecancel = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
-	readrequest = vector < vector<unsigned>
-			> (NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
-	writerequest = vector < vector<unsigned>
-			> (NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
+//	readrequest = vector < vector<uint64_t>
+//			> (NUM_RANKS, vector<uint64_t>(NUM_BANKS, 0));
+	coutcanceledwrite = vector < vector<uint64_t>
+			> (NUM_RANKS, vector<uint64_t>(NUM_BANKS, 0)); //record the Count of Canceled Write
 	ongoingWrite = vector < vector<BusPacket *>
 			> (NUM_RANKS, vector<BusPacket *>(NUM_BANKS, NULL));
 //	canceledWrite =  NULL;
@@ -38,18 +38,18 @@ CancelWrite::~CancelWrite() {
 bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 		bool &found) {
 	if (transaction->transactionType == DATA_READ) {
-		vector<BusPacket*> &queue = writeQueue.getCommandQueue(buspacket->rank,
+		vector<BusPacket*> &wrqueue = writeQueue.getCommandQueue(buspacket->rank,
 				buspacket->bank);
-		for (unsigned i = 0; i < queue.size(); i++) {
-			BusPacket *packet = queue[i];
-			if (packet->physicalAddress == transaction->address
-					&& packet->RIP == transaction->RIP) { //if write queue has the same address, then the read request can be returned
+	//check the partial queue at the same time
+		for (unsigned i = 0; i < wrqueue.size(); i++) {
+			BusPacket *packet = wrqueue[i];
+			if (packet->physicalAddress == transaction->address) { //if write queue has the same address, then the read request can be returned
 				transaction->transactionType = RETURN_DATA; //MC got the returned data from write queue.
-				if (queue[i]->busPacketType == ACTIVATE && queue.size() > 1
-						&& i < queue.size() - 1
-						&& queue[i + 1]->physicalAddress
+				if (wrqueue[i]->busPacketType == ACTIVATE && wrqueue.size() > 1
+						&& i < wrqueue.size() - 1
+						&& wrqueue[i + 1]->physicalAddress
 								== packet->physicalAddress) {
-					transaction->data = queue[i + 1]->data;
+					transaction->data = wrqueue[i + 1]->data;
 				} else {
 					transaction->data = packet->data;
 				}
@@ -58,7 +58,6 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 			}
 		}
 		if (found) {
-			readrequest[buspacket->rank][buspacket->bank]++;
 			return true;
 		}
 		if (readQueue.hasRoomFor(2, buspacket->rank, buspacket->bank)) {
@@ -82,8 +81,7 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 				buspacket->bank);
 		for (unsigned i = 0; i < queue.size(); i++) {
 			BusPacket *packet = queue[i];
-			if (packet->physicalAddress == transaction->address
-					&& packet->RIP == transaction->RIP) { //if the write queue has the same address, then the old write can be evicted, updated the newest data.
+			if (packet->physicalAddress == transaction->address) { //if the write queue has the same address, then the old write can be evicted, updated the newest data.
 				found = true;
 				if (queue[i]->busPacketType == ACTIVATE && queue.size() > 1
 						&& i < queue.size() - 1
@@ -122,6 +120,7 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 		}
 	}
 }
+
 bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 		CommandQueue &requestQueue) {
 	bool issuable = false;
@@ -218,6 +217,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 					if (!readqueue.empty() && writequeue.size() < 16) {	//prioritized the ReadRequest and Cancel the on-going write
 						writepriority[nextRank][nextBank] = false;
 						issueWC(nextRank, nextBank); //change the timing of Rank and Bank to issue the ReadRequest
+						coutcanceledwrite[nextRank][nextBank]++; //record the Count of Canceled Write
 						writecancel[nextRank][nextBank] = true;
 						issueRead = issueRequest(nextRank, nextBank, *busPacket,
 								readQueue);

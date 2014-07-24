@@ -27,6 +27,17 @@ public:
 					p.idleInterval) {
 //		idleInterval();
 	}
+/*	void print() {
+		PRINTN("PredictionEntry RIP : " << RIP);
+		PRINTN(" address is " << address);
+		PRINTN(" last access  is " << timeAccess);
+		PRINTN(" idleInterval is [");
+		for (size_t i = 0; i != idleInterval.size(); i++) {
+			PRINTN(" " << idleInterval[i]);
+		}
+		PRINT(" ]");
+	}*/
+
 	/*	static bool compare(PredictTable newins, PredictTable oldins) {
 	 return (newins.timeAccess > oldins.timeAccess);
 	 }*/

@@ -52,6 +52,8 @@ unsigned DEVICE_WIDTH;
 unsigned REFRESH_PERIOD;
 float tCK;
 float Vdd;
+double readEnergyperCell;
+double writeEnergyperCell;
 unsigned CL;
 unsigned AL;
 unsigned BL;
@@ -85,7 +87,9 @@ unsigned IDD5;
 unsigned IDD6;
 unsigned IDD6L;
 unsigned IDD7;
-
+float Factor;
+float iteration_number;
+float Ratio;
 
 //in bytes
 unsigned JEDEC_DATA_BUS_BITS;
@@ -173,8 +177,12 @@ static ConfigMap configMap[] =
 	DEFINE_UINT_PARAM(IDD6,DEV_PARAM),
 	DEFINE_UINT_PARAM(IDD6L,DEV_PARAM),
 	DEFINE_UINT_PARAM(IDD7,DEV_PARAM),
+	DEFINE_FLOAT_PARAM(Factor,DEV_PARAM),
+	DEFINE_FLOAT_PARAM(Ratio,DEV_PARAM),
+	DEFINE_FLOAT_PARAM(iteration_number,DEV_PARAM),
 	DEFINE_FLOAT_PARAM(Vdd,DEV_PARAM),
-
+	DEFINE_DOUBLE_PARAM(readEnergyperCell,DEV_PARAM),//pj
+	DEFINE_DOUBLE_PARAM(writeEnergyperCell,DEV_PARAM),//pj
 	DEFINE_UINT_PARAM(NUM_CHANS,SYS_PARAM),
 	DEFINE_UINT_PARAM(JEDEC_DATA_BUS_BITS,SYS_PARAM),
 
@@ -223,6 +231,9 @@ void IniReader::WriteParams(std::ofstream &visDataOut, paramType type)
 				break;
 			case FLOAT:
 				visDataOut << *((float *)configMap[i].variablePtr);
+				break;
+			case DOUBLE:
+				visDataOut << *((double *)configMap[i].variablePtr);
 				break;
 			case STRING:
 				visDataOut << *((string *)configMap[i].variablePtr);
@@ -302,6 +313,17 @@ void IniReader::SetKey(string key, string valueString, bool isSystemParam, size_
 					ERROR("could not parse line "<<lineNumber<<" (non-numeric value '"<<valueString<<"')?");
 				}
 				*((float *)configMap[i].variablePtr) = floatValue;
+				if (DEBUG_INI_READER)
+				{
+					DEBUG("\t - SETTING "<<configMap[i].iniKey<<"="<<floatValue);
+				}
+				break;
+			case DOUBLE:
+				if ((iss >> dec >> floatValue).fail())
+				{
+					ERROR("could not parse line "<<lineNumber<<" (non-numeric value '"<<valueString<<"')?");
+				}
+				*((double *)configMap[i].variablePtr) = floatValue;
 				if (DEBUG_INI_READER)
 				{
 					DEBUG("\t - SETTING "<<configMap[i].iniKey<<"="<<floatValue);
@@ -453,6 +475,7 @@ bool IniReader::CheckIfAllSet()
 			case UINT:
 			case UINT64:
 			case FLOAT:
+			case DOUBLE:
 				ERROR("Cannot continue without key '"<<configMap[i].iniKey<<"' set.");
 				return false;
 				break;

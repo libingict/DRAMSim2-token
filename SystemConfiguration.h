@@ -104,7 +104,9 @@ extern unsigned tRFC;
 extern unsigned tFAW;
 extern unsigned tCKE;
 extern unsigned tXP;
-
+extern float iteration_number;
+extern float Factor;
+extern float Ratio;
 extern unsigned tCMD;
 
 /* For power parameters (current and voltage), see externs in MemoryController.cpp */ 
@@ -121,10 +123,15 @@ extern unsigned NUM_DEVICES;
 #define WRITE_TO_READ_DELAY_R (WL+BL/2+tRTRS-RL) //interrank
 
 
-#define Partial_TO_PRE_DELAY (WL+BL/2+tWR)/8
-#define Partial_AUTOPRE_DELAY (WL+BL/2+SET+tRP)/8
-#define Partial_TO_READ_DELAY_B (WL+BL/2+tWTR)/8 //interbank
-#define Partial_TO_READ_DELAY_R (WL+BL/2+tRTRS-RL)/8 //interrank
+#define Partial_TO_PRE_DELAY (unsigned)(WRITE_TO_PRE_DELAY/Ratio)
+#define Partial_AUTOPRE_DELAY (unsigned)(WRITE_AUTOPRE_DELAY/Ratio)
+#define Partial_TO_READ_DELAY_B (unsigned)(WRITE_TO_READ_DELAY_B/Ratio) //interbank
+#define Partial_TO_READ_DELAY_R (unsigned)(WRITE_TO_READ_DELAY_R/Ratio) //interrank
+
+#define Full_TO_PRE_DELAY (unsigned)(WRITE_TO_PRE_DELAY*(1-1/Ratio))
+#define Full_AUTOPRE_DELAY (unsigned)(WRITE_AUTOPRE_DELAY*(1-1/Ratio))
+#define Full_TO_READ_DELAY_B (unsigned)(WRITE_TO_READ_DELAY_B*(1-1/Ratio)) //interbank
+#define Full_TO_READ_DELAY_R (unsigned)(WRITE_TO_READ_DELAY_R*(1-1/Ratio)) //interrank
 
 extern unsigned JEDEC_DATA_BUS_BITS;
 

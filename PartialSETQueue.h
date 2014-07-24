@@ -50,6 +50,7 @@ public:
 	bool evict(unsigned &nextrank, unsigned &nextbank, BusPacket **busPacket);
 	void getIdleInterval(); //get the bank interval is long or short;
 	void print();
+	void printIdletable();
 	void update();
 
 	vector<vector<bool> > isFull;
@@ -58,11 +59,14 @@ public:
 	Table IdleTable;
 	vector<vector<BankState> > &bankStates;
 	CancelWrite &cancelWrite;
+	vector<vector<uint64_t> > countPSQsetperBank;
+	vector<vector<uint64_t> > countPSQpartialsetperBank;
 private:
 	static const unsigned PARTIAL_QUEUE_DEPTH = 128;
 	vector<vector<bool> > idle;
-	vector<vector<unsigned> > begin;
-	vector<vector<unsigned> > duration;
+	vector<vector<uint64_t> > begin;
+	vector<vector<uint64_t> > duration;
+
 };
 }
 #endif

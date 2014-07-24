@@ -54,6 +54,8 @@ extern unsigned IDD6;
 extern unsigned IDD6L;
 extern unsigned IDD7;
 extern float Vdd;
+extern double readEnergyperCell; //pj
+extern double writeEnergyperCell; //pj
 //extern double RETENTION_TIME;
 
 using namespace DRAMSim;
@@ -64,7 +66,8 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_,
 				vector < BankState > (NUM_BANKS, dramsim_log)), commandQueue(
 				bankStates, dramsim_log_), cancelWrite(bankStates, dramsim_log_,
 				*&ranks), psQueue(bankStates, cancelWrite, dramsim_log_), poppedBusPacket(
-				NULL), csvOut(csvOut_), totalTransactions(0), refreshRank(0) {
+				NULL), csvOut(csvOut_), totalTransactions(0), addedRdTrans(0), addedWrTrans(
+				0), refreshRank(0) {
 	//get handle on parent
 	parentMemorySystem = parent;
 
@@ -85,6 +88,11 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_,
 	totalReadsPerRank = vector < uint64_t > (NUM_RANKS, 0);
 	totalWritesPerRank = vector < uint64_t > (NUM_RANKS, 0);
 
+	totalActPerBank = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
+	totalPrePerBank = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
+	totalActPerRank = vector < uint64_t > (NUM_RANKS, 0);
+	totalPrePerRank = vector < uint64_t > (NUM_RANKS, 0);
+
 	writeDataCountdown.reserve(NUM_RANKS);
 	writeDataToSend.reserve(NUM_RANKS);
 	refreshCountdown.reserve(NUM_RANKS);
@@ -94,13 +102,20 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_,
 	burstEnergy = vector < uint64_t > (NUM_RANKS, 0);
 	actpreEnergy = vector < uint64_t > (NUM_RANKS, 0);
 	refreshEnergy = vector < uint64_t > (NUM_RANKS, 0);
-
+	ripaccessPerBank = vector<vector<RipAccesscount*> >(); // vector< vector<> > T= vector< vector<> >();
+	addraccessPerBank = vector<vector<RipAccesscount*> >();
 	totalEpochLatency = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
 
 	//staggers when each rank is due for a refresh
 	for (size_t i = 0; i < NUM_RANKS; i++) {
 		refreshCountdown.push_back(
 				(int) ((REFRESH_PERIOD / tCK) / NUM_RANKS) * (i + 1));
+		for (size_t j = 0; j < NUM_BANKS; j++) {
+			ripaccessPerBank.push_back(vector<RipAccesscount*>());
+			addraccessPerBank.push_back(vector<RipAccesscount*>());
+
+		}
+
 	}
 }
 
@@ -205,12 +220,12 @@ void MemoryController::update() {
 			}
 		}
 	}
-    //PRINT("STEP 1");
+	//PRINT("STEP 1");
 	//check for outgoing command packets and handle countdowns
 	if (outgoingCmdPacket != NULL) {
 		cmdCyclesLeft--;
 		if (cmdCyclesLeft == 0) //packet is ready to be received by rank
-		{
+				{
 			(*ranks)[outgoingCmdPacket->rank]->receiveFromBus(
 					outgoingCmdPacket);
 			outgoingCmdPacket = NULL;
@@ -280,29 +295,29 @@ void MemoryController::update() {
 	}
 
 //pass a pointer to a poppedBusPacket
-
 //function returns true if there is something valid in poppedBusPacket
 	//PRINT("STEP 2");
+	psQueue.getIdleInterval();
 	bool popWCQueue = false;
 	bool popcmdQueue = false;
 	bool popqueue = false;
 	BusPacket *poppedWCPacket;
 	BusPacket *poppedcmdPacket;
 	if (WRITECANCEL) {
-		popqueue = psQueue.evict(cancelWrite.nextRank, cancelWrite.nextBank,
-				&poppedBusPacket);
-		if (!popqueue) {
-			popWCQueue = cancelWrite.cancelwrite(&poppedWCPacket); //then we could know if the last write is canceled.
-			popqueue = popWCQueue;
-			poppedBusPacket = poppedWCPacket;
-		}
+		/*		popqueue = psQueue.evict(cancelWrite.nextRank, cancelWrite.nextBank,
+		 &poppedBusPacket);
+		 if (!popqueue) {*/
+		popWCQueue = cancelWrite.cancelwrite(&poppedWCPacket); //then we could know if the last write is canceled.
+		popqueue = popWCQueue;
+		poppedBusPacket = poppedWCPacket;
+//		}
 	} else {
 		popqueue = commandQueue.pop(&poppedBusPacket);
 	}
 	//PRINT("STEP 21");
 	if (popqueue) {
-//		psQueue.iniPredictTable(poppedBusPacket->rank, poppedBusPacket->bank,
-//				poppedBusPacket->physicalAddress, poppedBusPacket->RIP);
+		psQueue.iniPredictTable(poppedBusPacket->rank, poppedBusPacket->bank,
+				poppedBusPacket->physicalAddress, poppedBusPacket->RIP);
 		unsigned rank = poppedBusPacket->rank;
 		unsigned bank = poppedBusPacket->bank;
 		if (poppedBusPacket->busPacketType == WRITE
@@ -328,20 +343,23 @@ void MemoryController::update() {
 							currentClockCycle);
 				}
 			}
-/*			if (psQueue.enqueue(poppedBusPacket)) { //if the readqueue is empty not enqueue
-				poppedBusPacket->busPacketType = PartialSET;
-			} else {
-				psQueue.release(poppedBusPacket); //not enqueue, then SET, check the same entry in PSqueue, and delete it.
-			}*/
+			/*			if (psQueue.enqueue(poppedBusPacket)) { //if the readqueue is empty not enqueue
+			 poppedBusPacket->busPacketType = PartialSET;
+			 } else {
+			 psQueue.release(poppedBusPacket); //not enqueue, then SET, check the same entry in PSqueue, and delete it.
+			 }*/
 			if (cancelWrite.writepriority[rank][bank]) {
 				switch (poppedBusPacket->busPacketType) {
 				case WRITE:
 					bankStates[rank][bank].stateChangeCountdown =
-							WRITE_TO_READ_DELAY_B;
+					WRITE_TO_READ_DELAY_B;
 					break;
 				case PartialSET:
 					bankStates[rank][bank].stateChangeCountdown =
-					Partial_TO_READ_DELAY_B;
+							Partial_TO_READ_DELAY_B;
+				case FullSET:
+					bankStates[rank][bank].stateChangeCountdown =
+							Full_TO_READ_DELAY_B;
 					break;
 				default:
 					break;
@@ -353,19 +371,15 @@ void MemoryController::update() {
 						poppedBusPacket->data, dramsim_log,
 						poppedBusPacket->RIP);
 			}
-
 		}
-//		PRINTN("MC 1 366 0x" <<  hex << poppedBusPacket << dec);
-//		poppedBusPacket->print();
 		if (poppedBusPacket->busPacketType == WRITE
 				|| poppedBusPacket->busPacketType == WRITE_P
 				|| poppedBusPacket->busPacketType == FullSET
 				|| poppedBusPacket->busPacketType == PartialSET) {
-			BusPacket* bp = new BusPacket(DATA, poppedBusPacket->physicalAddress,
-							poppedBusPacket->column, poppedBusPacket->row, rank,
-							bank, poppedBusPacket->data, dramsim_log,
-							poppedBusPacket->RIP);
-//			PRINTN("new buspacket 0x" << hex << bp << dec);
+			BusPacket* bp = new BusPacket(DATA,
+					poppedBusPacket->physicalAddress, poppedBusPacket->column,
+					poppedBusPacket->row, rank, bank, poppedBusPacket->data,
+					dramsim_log, poppedBusPacket->RIP);
 			writeDataToSend.push_back(bp);
 			writeDataCountdown.push_back(WL);
 		} else {
@@ -381,8 +395,6 @@ void MemoryController::update() {
 				}
 			}
 		}
-//		PRINTN("MC 1 396 0x" << hex << poppedBusPacket << dec);
-		poppedBusPacket->print();
 		//test should be SET or Partial-SET
 		//
 		//update each bank's state based on the command that was just popped out of the command queue
@@ -392,6 +404,8 @@ void MemoryController::update() {
 		case READ_P:
 		case READ:
 			//add energy to account for total
+			accessCount(rank, bank, poppedBusPacket->RIP,
+					poppedBusPacket->physicalAddress, 1);
 			if (DEBUG_POWER) {
 				PRINT(" ++ Adding Read energy to total energy");
 			}
@@ -447,15 +461,16 @@ void MemoryController::update() {
 		case WRITE:
 		case PartialSET:
 		case FullSET:
+			accessCount(rank, bank, poppedBusPacket->RIP,
+					poppedBusPacket->physicalAddress, 0);
 			if (poppedBusPacket->busPacketType == WRITE_P) {
 				bankStates[rank][bank].nextActivate = max(
 						currentClockCycle + WRITE_AUTOPRE_DELAY,
 						bankStates[rank][bank].nextActivate);
 				bankStates[rank][bank].lastCommand = WRITE_P;
 				bankStates[rank][bank].stateChangeCountdown =
-						WRITE_TO_PRE_DELAY;
-			} else if (poppedBusPacket->busPacketType == WRITE
-					|| poppedBusPacket->busPacketType == FullSET) {
+				WRITE_TO_PRE_DELAY;
+			} else if (poppedBusPacket->busPacketType == WRITE) {
 				bankStates[rank][bank].nextPrecharge = max(
 						currentClockCycle + WRITE_TO_PRE_DELAY,
 						bankStates[rank][bank].nextPrecharge);
@@ -463,6 +478,11 @@ void MemoryController::update() {
 			} else if (poppedBusPacket->busPacketType == PartialSET) {
 				bankStates[rank][bank].nextPrecharge = max(
 						currentClockCycle + Partial_TO_PRE_DELAY,
+						bankStates[rank][bank].nextPrecharge);
+				bankStates[rank][bank].lastCommand = WRITE;
+			} else if (poppedBusPacket->busPacketType == FullSET) {
+				bankStates[rank][bank].nextPrecharge = max(
+						currentClockCycle + Full_TO_PRE_DELAY,
 						bankStates[rank][bank].nextPrecharge);
 				bankStates[rank][bank].lastCommand = WRITE;
 			}
@@ -485,6 +505,13 @@ void MemoryController::update() {
 										currentClockCycle
 												+ Partial_TO_READ_DELAY_R,
 										bankStates[i][j].nextRead);
+							} else if (poppedBusPacket->busPacketType
+									== FullSET) {
+								bankStates[i][j].nextRead =
+										max(
+												currentClockCycle
+														+ Full_TO_READ_DELAY_R,
+												bankStates[i][j].nextRead);
 							} else {
 								bankStates[i][j].nextRead = max(
 										currentClockCycle
@@ -499,6 +526,10 @@ void MemoryController::update() {
 						if (poppedBusPacket->busPacketType == PartialSET) {
 							bankStates[i][j].nextRead = max(
 									currentClockCycle + Partial_TO_READ_DELAY_B,
+									bankStates[i][j].nextRead);
+						} else if (poppedBusPacket->busPacketType == FullSET) {
+							bankStates[i][j].nextRead = max(
+									currentClockCycle + Full_TO_READ_DELAY_B,
 									bankStates[i][j].nextRead);
 						} else {
 							bankStates[i][j].nextRead = max(
@@ -527,7 +558,7 @@ void MemoryController::update() {
 			}
 			actpreEnergy[rank] += ((IDD0 * tRC)
 					- ((IDD3N * tRAS) + (IDD2N * (tRC - tRAS)))) * NUM_DEVICES;
-
+			totalActPerBank[SEQUENTIAL(rank, bank)]++;
 			bankStates[rank][bank].currentBankState = RowActive;
 			bankStates[rank][bank].lastCommand = ACTIVATE;
 			bankStates[rank][bank].openRowAddress = poppedBusPacket->row;
@@ -555,6 +586,7 @@ void MemoryController::update() {
 
 			break;
 		case PRECHARGE:
+			totalPrePerBank[SEQUENTIAL(rank, bank)]++;
 			bankStates[rank][bank].currentBankState = Precharging;
 			bankStates[rank][bank].lastCommand = PRECHARGE;
 			bankStates[rank][bank].stateChangeCountdown = tRP;
@@ -597,7 +629,10 @@ void MemoryController::update() {
 		outgoingCmdPacket = poppedBusPacket;
 		cmdCyclesLeft = tCMD;
 
+//		psQueue.getIdleInterval();
+
 	}
+
 //if not find issuable cmd due to the current write issue, then cancel the current write
 	for (size_t i = 0; i < transactionQueue.size(); i++) {
 		//pop off top transaction from queue
@@ -682,6 +717,7 @@ void MemoryController::update() {
 			if (transaction->transactionType == DATA_READ) {
 				Transaction *trans = new Transaction(*transaction);
 				added = cancelWrite.addRequest(trans, command, found);
+				addedRdTrans++;
 				if (found) {
 					returnTransaction.push_back(trans);
 					totalReadsPerBank[SEQUENTIAL(
@@ -694,6 +730,7 @@ void MemoryController::update() {
 					break;
 				}
 			} else if (transaction->transactionType == DATA_WRITE) {
+				addedWrTrans++;
 				added = cancelWrite.addRequest(transaction, command, found);
 				if (found) {
 					totalTransactions++;
@@ -880,8 +917,8 @@ void MemoryController::update() {
 	}
 	commandQueue.step();
 	cancelWrite.update();
-	psQueue.update();
-
+//	psQueue.update();
+//	psQueue.getIdleInterval();
 }
 
 bool MemoryController::WillAcceptTransaction() {
@@ -909,6 +946,8 @@ void MemoryController::resetStats() {
 			totalReadsPerBank[SEQUENTIAL(i,j)] = 0;
 			totalWritesPerBank[SEQUENTIAL(i,j)] = 0;
 			totalEpochLatency[SEQUENTIAL(i,j)] = 0;
+			totalActPerBank[SEQUENTIAL(i,j)] = 0;
+			totalPrePerBank[SEQUENTIAL(i,j)] = 0;
 		}
 
 		burstEnergy[i] = 0;
@@ -931,6 +970,10 @@ void MemoryController::printStats(bool finalStats) {
 	unsigned bytesPerTransaction = (JEDEC_DATA_BUS_BITS * BL) / 8;
 	uint64_t totalBytesTransferred = totalTransactions * bytesPerTransaction;
 	double secondsThisEpoch = (double) cyclesElapsed * tCK * 1E-9;
+//	double partialset_energy=(double)writeEnergyperCell/Factor*iteration_number;
+//	double set_energy=writeEnergyperCell*8;
+	double partialset_energy = (double) writeEnergyperCell / Ratio;
+	double set_energy = writeEnergyperCell;
 
 // only per rank
 	vector<double> backgroundPower = vector<double>(NUM_RANKS, 0.0);
@@ -939,8 +982,25 @@ void MemoryController::printStats(bool finalStats) {
 	vector<double> actprePower = vector<double>(NUM_RANKS, 0.0);
 	vector<double> averagePower = vector<double>(NUM_RANKS, 0.0);
 
+	vector < uint64_t > canceledwriteperRank = vector < uint64_t
+			> (NUM_RANKS, 0);
+	vector < uint64_t > PSQsetperRank = vector < uint64_t > (NUM_RANKS, 0);
+	vector < uint64_t > PSQpartialsetperRank = vector < uint64_t
+			> (NUM_RANKS, 0);
+
 // per bank variables
 	vector<double> averageLatency = vector<double>(NUM_RANKS * NUM_BANKS, 0.0);
+
+	vector<double> readEnergy = vector<double>(NUM_RANKS, 0.0);
+	vector<double> writeEnergy = vector<double>(NUM_RANKS, 0.0);
+	vector<double> readPower = vector<double>(NUM_RANKS, 0.0);
+	vector<double> writePower = vector<double>(NUM_RANKS, 0.0);
+
+	vector<double> readEnergyperBank = vector<double>(NUM_RANKS * NUM_BANKS,
+			0.0);
+	vector<double> writeEnergyperBank = vector<double>(NUM_RANKS * NUM_BANKS,
+			0.0);
+
 	vector<double> bandwidth = vector<double>(NUM_RANKS * NUM_BANKS, 0.0);
 
 	double totalBandwidth = 0.0;
@@ -958,6 +1018,27 @@ void MemoryController::printStats(bool finalStats) {
 			totalBandwidth += bandwidth[SEQUENTIAL(i,j)];
 			totalReadsPerRank[i] += totalReadsPerBank[SEQUENTIAL(i,j)];
 			totalWritesPerRank[i] += totalWritesPerBank[SEQUENTIAL(i,j)];
+
+            totalActPerRank[i] += totalActPerBank[SEQUENTIAL(i,j)];
+            totalPrePerRank[i] += totalPrePerBank[SEQUENTIAL(i,j)];
+
+			canceledwriteperRank[i] += cancelWrite.coutcanceledwrite[i][j];
+			PSQsetperRank[i] += psQueue.countPSQsetperBank[i][j];
+			PSQpartialsetperRank[i] += psQueue.countPSQpartialsetperBank[i][j];
+
+			readEnergyperBank[SEQUENTIAL(i,j)] =
+					(((double) totalReadsPerBank[SEQUENTIAL(i,j)]
+							* (double) bytesPerTransaction * 8))
+							* readEnergyperCell;
+			writeEnergyperBank[SEQUENTIAL(i,j)] =
+					(((double) psQueue.countPSQsetperBank[i][j]
+							* partialset_energy)
+							+ ((double) (totalWritesPerBank[SEQUENTIAL(i,j)]
+									- psQueue.countPSQsetperBank[i][j])
+									* set_energy))
+							* (double) bytesPerTransaction * 8;
+			readEnergy[i] += readEnergyperBank[SEQUENTIAL(i,j)];
+			writeEnergy[i] += writeEnergyperBank[SEQUENTIAL(i,j)];
 		}
 	}
 #ifdef LOG_OUTPUT
@@ -969,6 +1050,8 @@ void MemoryController::printStats(bool finalStats) {
 #endif
 //	commandQueue.print();
 	PRINT(" =======================================================");
+	PRINT(" READ TRANS "<< addedRdTrans <<" WRITE TRANS " << addedWrTrans);
+
 	PRINT(
 			" ============== Printing Statistics [id:"<<parentMemorySystem->systemID<<"]==============");
 	PRINTN("   Total Return Transactions : " << totalTransactions);
@@ -978,16 +1061,25 @@ void MemoryController::printStats(bool finalStats) {
 	double totalAggregateBandwidth = 0.0;
 	for (size_t r = 0; r < NUM_RANKS; r++) {
 
-		PRINT("      -Rank   "<<r<<" : ");
-		PRINTN("        -Reads  : " << totalReadsPerRank[r]);
-		PRINT(" ("<<totalReadsPerRank[r] * bytesPerTransaction<<" bytes)");
-		PRINTN("        -Writes : " << totalWritesPerRank[r]);
-		PRINT(" ("<<totalWritesPerRank[r] * bytesPerTransaction<<" bytes)");
-		for (size_t j = 0; j < NUM_BANKS; j++) {
-			PRINT(
-					"        -Bandwidth / Latency  (Bank " <<j<<"): " <<bandwidth[SEQUENTIAL(r,j)] << " GB/s\t\t" <<averageLatency[SEQUENTIAL(r,j)] << " ns");
-		}
+				PRINT("      -Rank   "<<r<<" : ");
+		 PRINTN("        -Reads  : " << totalReadsPerRank[r]);
+		 PRINT(" ("<<totalReadsPerRank[r] * bytesPerTransaction<<" bytes)");
+		 PRINTN("        -Writes : " << totalWritesPerRank[r]);
+		 PRINT(" ("<<totalWritesPerRank[r] * bytesPerTransaction<<" bytes)");
+		 PRINTN("        -Active  : " << totalActPerRank[r]);
+		 PRINTN("        -Precharge  : " << totalPrePerRank[r]);
+		 PRINTN("        -CanceledWrites : " << canceledwriteperRank[r]);
+		 PRINTN("        -FullSET Writes : " << PSQsetperRank[r]);
+		 PRINT("        -PartialSET Writes : " << PSQpartialsetperRank[r]);
 
+		for (size_t j = 0; j < NUM_BANKS; j++) {
+						PRINT(
+			 "        -Bandwidth / Latency  (Bank " <<j<<"): " <<bandwidth[SEQUENTIAL(r,j)] << " GB/s\t\t" <<averageLatency[SEQUENTIAL(r,j)] << " ns");
+
+		}
+		for (size_t b = 0; b < NUM_BANKS; b++) {
+						printAccesscount(r, b);
+		}
 		// factor of 1000 at the end is to account for the fact that totalEnergy is accumulated in mJ since IDD values are given in mA
 		backgroundPower[r] = ((double) backgroundEnergy[r]
 				/ (double) (cyclesElapsed)) * Vdd / 1000.0;
@@ -997,6 +1089,10 @@ void MemoryController::printStats(bool finalStats) {
 				* Vdd / 1000.0;
 		actprePower[r] = ((double) actpreEnergy[r] / (double) (cyclesElapsed))
 				* Vdd / 1000.0;
+		readPower[r] = ((double) readEnergy[r] / (double) (secondsThisEpoch))
+				/ 1.0e9; //(mW)
+		writePower[r] = ((double) writeEnergy[r] / (double) (secondsThisEpoch))
+				/ 1.0e9; //(mW)
 		averagePower[r] = ((backgroundEnergy[r] + burstEnergy[r]
 				+ refreshEnergy[r] + actpreEnergy[r]) / (double) cyclesElapsed)
 				* Vdd / 1000.0;
@@ -1006,13 +1102,17 @@ void MemoryController::printStats(bool finalStats) {
 					burstPower[r], refreshPower[r], actprePower[r]);
 		}
 
-		PRINT(" == Power Data for Rank        " << r);
-		PRINT("   Average Power (watts)     : " << averagePower[r]);
-		PRINT("     -Background (watts)     : " << backgroundPower[r]);
-		PRINT("     -Act/Pre    (watts)     : " << actprePower[r]);
-		PRINT("     -Burst      (watts)     : " << burstPower[r]);
-		PRINT("     -Refresh    (watts)     : " << refreshPower[r]);
+		/*		PRINT(" == Power Data for Rank        " << r);
+		 PRINT("   Average Power (watts)     : " << averagePower[r]);
+		 PRINT("     -Read   (mwatts)     : " << readPower[r]);
+		 PRINT("     -Write  (mwatts)     : " << writePower[r]);
+		 PRINT("     -Background (watts)     : " << backgroundPower[r]);
+		 PRINT("     -Act/Pre    (watts)     : " << actprePower[r]);
+		 PRINT("     -Burst      (watts)     : " << burstPower[r]);
+		 PRINT("     -Refresh    (watts)     : " << refreshPower[r]);
 
+		 PRINT("     -ReadEnergy   (pJ)     : " << readEnergy[r]);
+		 PRINT("     -WriteEnergy  (pJ)     : " << writeEnergy[r]);*/
 		if (VIS_FILE_OUTPUT) {
 			//	cout << "c="<<myChannel<< " r="<<r<<"writing to csv out on cycle "<< currentClockCycle<<endl;
 			// write the vis file output
@@ -1078,12 +1178,12 @@ void MemoryController::printStats(bool finalStats) {
 		}
 
 	}
-
+	PRINT("WRITE_TO_READ_DELAY "<<WRITE_TO_READ_DELAY_B);
 	PRINT(
 			endl<< " == Pending Transactions : "<<pendingReadTransactions.size()<<" ("<<currentClockCycle<<")==");
-	PRINT(
-			endl<< " == PartialSET Transactions : ");
-	psQueue.print();
+	/*	PRINT(
+	 endl<< " == PartialSET Transactions : ");*/
+//	psQueue.printIdletable();
 #ifdef LOG_OUTPUT
 	dramsim_log.flush();
 #endif
@@ -1099,7 +1199,21 @@ MemoryController::~MemoryController() {
 	for (size_t i = 0; i < returnTransaction.size(); i++) {
 		delete returnTransaction[i];
 	}
+	for (size_t r = 0; r < NUM_RANKS; r++) {
+		for (size_t b = 0; b < NUM_BANKS; b++) {
+			for (size_t k = 0; k < ripaccessPerBank[SEQUENTIAL(r,b)].size();
+					k++) {
+				delete ripaccessPerBank[SEQUENTIAL(r,b)][k];
+				//accessPerBank[SEQUENTIAL(rank,bank)].clear();
+			}
 
+			for (size_t m = 0; m < addraccessPerBank[SEQUENTIAL(r,b)].size();
+					m++) {
+				delete addraccessPerBank[SEQUENTIAL(r,b)][m];
+				//accessPerBank[SEQUENTIAL(rank,bank)].clear();
+			}
+		}
+	}
 }
 //inserts a latency into the latency histogram
 void MemoryController::insertHistogram(unsigned latencyValue, unsigned rank,
@@ -1107,4 +1221,66 @@ void MemoryController::insertHistogram(unsigned latencyValue, unsigned rank,
 	totalEpochLatency[SEQUENTIAL(rank,bank)] += latencyValue;
 //poor man's way to bin things.
 	latencies[(latencyValue / HISTOGRAM_BIN_SIZE) * HISTOGRAM_BIN_SIZE]++;
+}
+void MemoryController::accessCount(unsigned rank, unsigned bank, uint64_t rip,
+		uint64_t addr, unsigned type) { //type0=write;type1=read
+	vector<RipAccesscount*> &ripaccessBank =
+			ripaccessPerBank[SEQUENTIAL(rank,bank)];
+	vector<RipAccesscount*> &addraccessBank =
+			addraccessPerBank[SEQUENTIAL(rank,bank)];
+	bool found = false;
+	for (size_t i = 0; i != ripaccessBank.size(); i++) {
+		if (ripaccessBank[i]->RIP == rip) {
+			found = true;
+			if (type == 1) {
+				ripaccessBank[i]->readcount++;
+			} else {
+				ripaccessBank[i]->writecount++;
+			}
+			break;
+		}
+	}
+	if (found == false && type == 0) {
+		ripaccessBank.push_back(new RipAccesscount(rip));
+	}
+	bool found_addr = false;
+	for (size_t j = 0; j != addraccessBank.size(); j++) {
+		if (addraccessBank[j]->RIP == addr) {
+			found_addr = true;
+			addraccessBank[j]->accesstime.push_back(currentClockCycle);
+			if (type == 1) {
+				addraccessBank[j]->readcount++;
+			} else {
+				addraccessBank[j]->writecount++;
+			}
+			break;
+		}
+	}
+	if (found_addr == false && type == 0) {
+//		RipAccesscount* addrentry = new RipAccesscount(addr);
+//		addrentry->accesstime.push_back(currentClockCycle);
+		addraccessBank.push_back(new RipAccesscount(addr));
+		addraccessBank[addraccessBank.size()-1]->accesstime.push_back(currentClockCycle);
+	}
+	return;
+}
+void MemoryController::printAccesscount(unsigned rank, unsigned bank) { //type0=write;type1=read
+	vector<RipAccesscount*> &ripaccessBank =
+			ripaccessPerBank[SEQUENTIAL(rank,bank)];
+	vector<RipAccesscount*> &addraccessBank =
+			addraccessPerBank[SEQUENTIAL(rank,bank)];
+	PRINT("Rank "<<rank<<"Bank "<<bank<<" : ");
+	for (size_t i = 0; i < ripaccessBank.size(); i++) {
+		PRINT(
+				" no. "<<i<<" RIP "<<hex<<ripaccessBank[i]->RIP<<dec<<" readCount : "<<ripaccessBank[i]->readcount<<" writeCount: "<<ripaccessBank[i]->writecount);
+	}
+	for (size_t j = 0; j < addraccessBank.size(); j++) {
+		PRINTN(" no. "<<j<<" Addr: "<<hex<<addraccessBank[j]->RIP<<dec<<" Access interval: ");
+		for (size_t t = 1; t < addraccessBank[j]->accesstime.size(); t++) {
+			PRINTN(addraccessBank[j]->accesstime[t]-addraccessBank[j]->accesstime[t-1]<<":");
+		}
+		PRINT(
+				"\treadCount : "<<addraccessBank[j]->readcount<<" writeCount: "<<addraccessBank[j]->writecount);
+	}
+	return;
 }
