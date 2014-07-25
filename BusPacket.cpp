@@ -119,12 +119,6 @@ void BusPacket::print()
 		case WRITE:
 			PRINT("BP [WRITE] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
 			break;
-		case PartialSET:
-			PRINT("BP [PartialSET] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
-			break;
-		case FullSET:
-			PRINT("BP [FullSET] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
-			break;
 		case WRITE_P:
 			PRINT("BP [WRITE_P] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
 			break;

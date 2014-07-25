@@ -180,62 +180,6 @@ void Rank::receiveFromBus(BusPacket *packet) {
 		incomingWriteColumn = packet->column;
 		delete (packet);
 		break;
-	case PartialSET:
-		if (bankStates[packet->bank].currentBankState != RowActive
-				|| currentClockCycle < bankStates[packet->bank].nextWrite
-				|| packet->row != bankStates[packet->bank].openRowAddress) {
-			ERROR(
-					"== Error - Rank " << id << " received a WRITE when not allowed");
-			bankStates[packet->bank].print();
-			exit(0);
-		}
-
-		//update state table
-		bankStates[packet->bank].lastCommand = WRITE;
-		bankStates[packet->bank].nextPrecharge = max(
-				bankStates[packet->bank].nextPrecharge,
-				currentClockCycle + Partial_TO_PRE_DELAY);
-		for (size_t i = 0; i < NUM_BANKS; i++) {
-			bankStates[i].nextRead = max(bankStates[i].nextRead,
-					currentClockCycle + Partial_TO_READ_DELAY_B);
-			bankStates[i].nextWrite = max(bankStates[i].nextWrite,
-					currentClockCycle + max(BL / 2, tCCD));
-		}
-
-		//take note of where data is going when it arrives
-		incomingWriteBank = packet->bank;
-		incomingWriteRow = packet->row;
-		incomingWriteColumn = packet->column;
-		delete (packet);
-		break;
-	case FullSET:
-		if (bankStates[packet->bank].currentBankState != RowActive
-				|| currentClockCycle < bankStates[packet->bank].nextWrite
-				|| packet->row != bankStates[packet->bank].openRowAddress) {
-			ERROR(
-					"== Error - Rank " << id << " received a WRITE when not allowed");
-			bankStates[packet->bank].print();
-			exit(0);
-		}
-
-		//update state table
-		bankStates[packet->bank].lastCommand = WRITE;
-		bankStates[packet->bank].nextPrecharge = max(
-				bankStates[packet->bank].nextPrecharge,
-				currentClockCycle + Full_TO_PRE_DELAY);
-		for (size_t i = 0; i < NUM_BANKS; i++) {
-			bankStates[i].nextRead = max(bankStates[i].nextRead,
-					currentClockCycle + Full_TO_READ_DELAY_B);
-			bankStates[i].nextWrite = max(bankStates[i].nextWrite,
-					currentClockCycle + max(BL / 2, tCCD));
-		}
-
-		//take note of where data is going when it arrives
-		incomingWriteBank = packet->bank;
-		incomingWriteRow = packet->row;
-		incomingWriteColumn = packet->column;
-		delete (packet);
-		break;
 	case WRITE_P:
 		//make sure a write is allowed
 		if (bankStates[packet->bank].currentBankState != RowActive

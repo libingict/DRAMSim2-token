@@ -36,10 +36,17 @@ public:
 	void issueWC(unsigned r, unsigned b);
 	void update();
 	bool isEmpty(unsigned rank);
+	void getToken(BusPacket *buspacket);
+	void releaseToken();
+	bool powerAllowable();
 	vector<vector<BusPacket*> > ongoingWrite;
 //	vector<vector<BusPacket*> > canceledWrite;
 	vector<vector<bool> > writepriority;
 	vector<vector<bool> > writecancel;
+//Power Token
+	vector <vector<unsigned> > tokenpool;
+	vector <vector<unsigned> > tokencountdown;
+
 	unsigned nextRank;
 	unsigned nextBank;
 	unsigned nextRankPRE;
@@ -51,6 +58,7 @@ private:
 	unsigned writeQueueDepth;
 //	vector<vector<uint64_t> > readcout;
 	ostream &dramsim_log;
+	unsigned maxToken; //Per chip per bank token
 
 };
 }

@@ -612,7 +612,6 @@ void PartialSETQueue::iniPredictTable(unsigned rank, unsigned bank,
 		uint64_t addr, uint64_t rip) {
 	bool found = false;
 	vector<PredictionEntry *> &predictbank = predictTable[rank][bank];
-	vector<PredictionEntry*>::iterator it = predictbank.begin();
 	if (!predictbank.empty()) {
 		for (size_t i = 0; i < predictbank.size(); i++) {
 			if (predictbank[i]->RIP == rip) { //the latest access of the same PC is at the tail

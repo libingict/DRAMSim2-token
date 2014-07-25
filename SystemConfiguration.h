@@ -123,6 +123,7 @@ extern unsigned NUM_DEVICES;
 #define WRITE_TO_READ_DELAY_R (WL+BL/2+tRTRS-RL) //interrank
 
 
+/*
 #define Partial_TO_PRE_DELAY (unsigned)(WRITE_TO_PRE_DELAY/Ratio)
 #define Partial_AUTOPRE_DELAY (unsigned)(WRITE_AUTOPRE_DELAY/Ratio)
 #define Partial_TO_READ_DELAY_B (unsigned)(WRITE_TO_READ_DELAY_B/Ratio) //interbank
@@ -132,6 +133,7 @@ extern unsigned NUM_DEVICES;
 #define Full_AUTOPRE_DELAY (unsigned)(WRITE_AUTOPRE_DELAY*(1-1/Ratio))
 #define Full_TO_READ_DELAY_B (unsigned)(WRITE_TO_READ_DELAY_B*(1-1/Ratio)) //interbank
 #define Full_TO_READ_DELAY_R (unsigned)(WRITE_TO_READ_DELAY_R*(1-1/Ratio)) //interrank
+*/
 
 extern unsigned JEDEC_DATA_BUS_BITS;
 

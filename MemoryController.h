@@ -49,7 +49,6 @@
 #include "RipAccesscount.h"
 #include <map>
 
-#define RETAIN_TIME 4E+9/tCK
 using namespace std;
 
 namespace DRAMSim {
@@ -86,8 +85,7 @@ private:
 
 	CommandQueue commandQueue;
 	CancelWrite cancelWrite;		//cancelWrite
-	PartialSETQueue psQueue;	//add PartialSET queue
-
+	PartialSETQueue psQueue;
 	BusPacket *poppedBusPacket;
 	vector<unsigned> refreshCountdown;
 	vector<BusPacket *> writeDataToSend;
@@ -134,6 +132,8 @@ private:
 	unsigned byteOffsetWidth;
 
 	unsigned refreshRank;
+
+	vector<vector<unsigned> > powerPoll;
 
 public:
 	// energy values are per rank -- SST uses these directly, so make these public 

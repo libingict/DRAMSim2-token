@@ -49,8 +49,8 @@ enum BusPacketType
 	PRECHARGE,
 	REFRESH,
 	DATA,
-	PartialSET, //Write with short WR
-	FullSET   //Write with long WR
+	PartialSET,
+	FullSET
 };
 
 class BusPacket

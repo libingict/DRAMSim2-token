@@ -13,20 +13,24 @@ CancelWrite::CancelWrite(vector<vector<BankState> > &states,
 		dramsim_log(dramsim_log_), bankStates(states), writeQueue(states,
 				dramsim_log_), readQueue(states, dramsim_log_), ranks(ranks_), writeQueueDepth(
 				CMD_QUEUE_DEPTH), nextRank(0), nextBank(0), nextRankPRE(0), nextBankPRE(
-				0) {
+				0), maxToken(DEVICE_WIDTH) {
 	currentClockCycle = 0;
 	writecancel = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
 //	readrequest = vector < vector<uint64_t>
 //			> (NUM_RANKS, vector<uint64_t>(NUM_BANKS, 0));
 	coutcanceledwrite = vector < vector<uint64_t>
-			> (NUM_RANKS, vector<uint64_t>(NUM_BANKS, 0)); //record the Count of Canceled Write
+			> (NUM_RANKS, vector < uint64_t > (NUM_BANKS, 0)); //record the Count of Canceled Write
 	ongoingWrite = vector < vector<BusPacket *>
 			> (NUM_RANKS, vector<BusPacket *>(NUM_BANKS, NULL));
 //	canceledWrite =  NULL;
 	writepriority = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
-
+	////64bit data, from low to high mapped to chip 0-7
+	tokenpool = vector < vector<unsigned>
+			> (NUM_DEVICES, vector<unsigned>(NUM_BANKS, maxToken));
+	tokencountdown = vector < vector<unsigned>
+			> (NUM_DEVICES, vector<unsigned>(NUM_BANKS, WRITE_TO_PRE_DELAY));
 }
 CancelWrite::~CancelWrite() {
 	for (size_t r = 0; r < NUM_RANKS; r++) {
@@ -38,9 +42,9 @@ CancelWrite::~CancelWrite() {
 bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 		bool &found) {
 	if (transaction->transactionType == DATA_READ) {
-		vector<BusPacket*> &wrqueue = writeQueue.getCommandQueue(buspacket->rank,
-				buspacket->bank);
-	//check the partial queue at the same time
+		vector<BusPacket*> &wrqueue = writeQueue.getCommandQueue(
+				buspacket->rank, buspacket->bank);
+		//check the partial queue at the same time
 		for (unsigned i = 0; i < wrqueue.size(); i++) {
 			BusPacket *packet = wrqueue[i];
 			if (packet->physicalAddress == transaction->address) { //if write queue has the same address, then the read request can be returned
@@ -127,7 +131,7 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 	vector<BusPacket *> &queue = requestQueue.getCommandQueue(r, b);
 	for (unsigned i = 0; i < queue.size(); i++) {
 		BusPacket *request = queue[i];
-		if (requestQueue.isIssuable(request)) {
+		if (requestQueue.isIssuable(request)) { //check for the timing constraint
 			busPacket = new BusPacket(request->busPacketType,
 					request->physicalAddress, request->column, request->row,
 					request->rank, request->bank, request->data, dramsim_log,
@@ -255,20 +259,10 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 								delete ongoingWrite[nextRank][nextBank];
 								ongoingWrite[nextRank][nextBank] = NULL;
 							}
-//						return true;
 						}
 					} else {
 						issueWrite = issueRequest(nextRank, nextBank,
 								*busPacket, writeQueue);
-						/*						if (issueWrite
-						 && ((*busPacket)->busPacketType == WRITE)) {
-						 PRINT(
-						 " clock "<<currentClockCycle<<" writeP, issue write 0x" << hex << (*busPacket)->physicalAddress << dec<<" r["<<nextRank<<"] b["<<nextBank<<"] ");
-						 //						 if (ongoingWrite[nextRank][nextBank] == NULL) {
-						 //						 PRINT("ongoing NULL then ongoing is " << hex << (*busPacket)->physicalAddress << dec);
-						 //						 ongoingWrite[nextRank][nextBank] = (*busPacket);
-						 //						 }
-						 }*/
 					}
 				} else {				//writepriority is false!
 					if (!readqueue.empty()) {
@@ -280,21 +274,11 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 								== Idle && !writequeue.empty()) {
 							issueWrite = issueRequest(nextRank, nextBank,
 									*busPacket, writeQueue);
-							/*							if (issueWrite) {
-							 //								 PRINT(
-							 //								 "readP, read empty, issue write 0x" << hex << (*busPacket)->physicalAddress << dec<<" r["<<nextRank<<"] b["<<nextBank<<"] ");
-							 if ((*busPacket)->busPacketType == WRITE) {
-							 //									delete ongoingWrite[nextRank][nextBank];
-							 //									ongoingWrite[nextRank][nextBank] = NULL;
-							 }
-							 }*/
 						}
 					}
 				}
 				if (issueWrite || issueRead) {
-//					 PRINTN(" clock is "<<currentClockCycle<<" ");
-//					 (*busPacket)->print(); //DEBUG
-//				writeQueue.print();
+					getToken(*busPacket);
 					return true;
 				}
 			}
@@ -475,8 +459,6 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 													PRECHARGE, 0, 0, 0,
 													nextRankPRE, nextBankPRE, 0,
 													dramsim_log);
-//											PRINTN(
-//													"readP, read empty, write no found, set PRE r["<<nextRankPRE<<"]b["<<nextBankPRE<<"] ");
 											return true;
 										}
 									}
@@ -500,6 +482,54 @@ bool CancelWrite::isEmpty(unsigned r) {
 		return true;
 	} else
 		return false;
+}
+void CancelWrite::getToken(BusPacket *buspacket) {
+	unsigned r = buspacket->rank;
+	unsigned b = buspacket->bank;
+	//64bit data, from low to high mapped to chip 0-7
+	vector<unsigned> demandedtokenperChip = vector<unsigned>(NUM_DEVICES, 0);
+	BusPacket* bankpacket;
+	uint64_t olddata, newdata;;
+	uint64_t writtendata, tmp;
+	unsigned setbit, resetbit;
+	newdata = (uint64_t) (buspacket->data);
+	(*ranks)[r]->banks[b].read(bankpacket);
+	olddata = (uint64_t) (bankpacket->data);
+	writtendata = olddata ^ newdata;
+	tmp = writtendata;
+//actually this is different for each chip.
+	unsigned bit_width = JEDEC_DATA_BUS_BITS / DEVICE_WIDTH;
+	for (size_t i = 0; i < NUM_DEVICES; i++) {
+		setbit = 0;
+		resetbit = 0;
+		for (size_t d = 0; d < bit_width; d++) {
+			tmp = tmp >> d;
+			if (writtendata & 1)
+				setbit++;
+			else
+				resetbit++;
+		}
+		demandedtokenperChip[i] = setbit / 2 + resetbit;
+		tokenpool[i][b] = tokenpool[i][b] - demandedtokenperChip[i];
+	}
+}
+void CancelWrite::releaseToken() {
+	for (size_t r = 0; r < NUM_RANKS; r++) {
+		for (size_t i = 0; i < NUM_DEVICES; i++) {
+			for (size_t b = 0; b < NUM_BANKS; b++) {
+				if (ongoingWrite[r][b] != NULL && tokencountdown[i][b] != 0) {
+					tokencountdown[i][b]--;
+				}
+				if (tokencountdown[i][b] <= 0) {
+					tokenpool[i][b] = maxToken;
+					tokencountdown[i][b] = WRITE_TO_PRE_DELAY;
+				}
+			}
+		}
+	}
+}
+bool CancelWrite::powerAllowable() {
+	return false;
 }
 void CancelWrite::update() {
 	writeQueue.step();
