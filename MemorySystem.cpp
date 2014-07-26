@@ -173,6 +173,16 @@ bool MemorySystem::WillAcceptTransaction()
 {
 	return memoryController->WillAcceptTransaction();
 }
+bool MemorySystem::addTransaction(bool isWrite, uint64_t addr, void *data, size_t dataNumBytes)
+{
+
+	// Build the datapacket first
+	DataPacket *dp = new DataPacket((uint64_t*)data, dataNumBytes, addr);
+
+	TransactionType type = isWrite ? DATA_WRITE : DATA_READ;
+	Transaction *trans=new Transaction(type, addr, dp,0);
+	return addTransaction(trans); // will always be true
+}
 
 bool MemorySystem::addTransaction(bool isWrite, uint64_t addr, uint64_t rip)
 {

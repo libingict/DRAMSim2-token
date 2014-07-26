@@ -36,13 +36,11 @@
 #include "Transaction.h"
 #include "PrintMacros.h"
 
-using std::endl;
-using std::hex;
-using std::dec;
+using namespace std;
 
 namespace DRAMSim {
 
-Transaction::Transaction(TransactionType transType, uint64_t addr, void *dat,
+Transaction::Transaction(TransactionType transType, uint64_t addr, DataPacket *dat,
 		uint64_t rip) :
 		transactionType(transType), address(addr), data(dat), RIP(rip) {
 }

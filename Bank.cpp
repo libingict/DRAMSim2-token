@@ -35,13 +35,13 @@
 
 #include "Bank.h"
 #include "BusPacket.h"
-
+#include <assert.h>
 using namespace std;
 using namespace DRAMSim;
 
 Bank::Bank(ostream &dramsim_log_):
 		currentState(dramsim_log_), 
-		rowEntries(NUM_COLS),
+//		rowEntries(NUM_COLS),
 		dramsim_log(dramsim_log_)
 {}
 
@@ -186,11 +186,11 @@ void Bank::write(const BusPacket *busPacket)
 void Bank::read(BusPacket *busPacket)
 {
 
-	assert(busPacket->data == NULL);
+//	assert(busPacket->data == NULL);
 	row_map_t::iterator it;
 	it = rowEntries.find(busPacket->row);
 	unsigned transactionSize = (JEDEC_DATA_BUS_BITS/8)*BL;
-	byte *dataBuf = (byte *)calloc(sizeof(byte), transactionSize);
+	uint64_t *dataBuf = (uint64_t *)calloc(sizeof(uint64_t), transactionSize);
 	if (it != rowEntries.end())
 	{
 		byte *rowData = it->second;

@@ -36,7 +36,7 @@
 //
 
 #include "SystemConfiguration.h"
-
+#include "DataPacket.h"
 namespace DRAMSim
 {
 enum BusPacketType
@@ -65,15 +65,17 @@ public:
 	unsigned bank;
 	unsigned rank;
 	uint64_t physicalAddress;
-	void *data;
+//	void *data;
+	DataPacket *data;
 	uint64_t RIP;
 
 	//Functions
-	BusPacket(BusPacketType packtype, uint64_t physicalAddr, unsigned col, unsigned rw, unsigned r, unsigned b, void *dat, ostream &dramsim_log_,uint64_t rip=0);
+	BusPacket(BusPacketType packtype, uint64_t physicalAddr, unsigned col, unsigned rw, unsigned r, unsigned b, DataPacket *dat, ostream &dramsim_log_,uint64_t rip=0);
 
 	void print();
 	void print(uint64_t currentClockCycle, bool dataStart);
-	void printData() const;
+//	void printData() const;
+	static void printData(const void *data);
 
 };
 }

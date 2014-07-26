@@ -145,10 +145,12 @@ void MemoryController::receiveFromBus(BusPacket *bpacket) {
 
 //sends read data back to the CPU
 void MemoryController::returnReadData(const Transaction *trans) {
-	if (parentMemorySystem->ReturnReadData != NULL) {
+	DEBUG("[M-DPKT]: MC adding to return " << *(trans->data) << " ("<<trans->data->getNumBytes()<<")");
+	(*parentMemorySystem->ReturnReadData)(trans->address, *(trans->data->getData()), trans->data->getNumBytes());
+/*	if (parentMemorySystem->ReturnReadData != NULL) {
 		(*parentMemorySystem->ReturnReadData)(parentMemorySystem->systemID,
 				trans->address, currentClockCycle);
-	}
+	}*/
 }
 
 //gives the memory controller a handle on the rank objects
@@ -603,13 +605,14 @@ void MemoryController::update() {
 						transaction->data, dramsim_log, transaction->RIP);
 				transactionQueue.erase(transactionQueue.begin() + i);
 				commandQueue.enqueue(ACTcommand);
-				commandQueue.enqueue(command);
 				if (transaction->transactionType == DATA_READ) {
+					command->data=0;
 					pendingReadTransactions.push_back(transaction);
 				} else {
 					// just delete the transaction now that it's a buspacket
 					delete transaction;
 				}
+				commandQueue.enqueue(command);
 				/* only allow one transaction to be scheduled per cycle -- this should
 				 * be a reasonable assumption considering how much logic would be
 				 * required to schedule multiple entries per cycle (parallel data
@@ -634,6 +637,7 @@ void MemoryController::update() {
 					transaction->RIP);
 			if (transaction->transactionType == DATA_READ) {
 				Transaction *trans = new Transaction(*transaction);
+				command->data=0;
 				added = cancelWrite.addRequest(trans, command, found);
 				addedRdTrans++;
 				if (found) {
@@ -877,6 +881,8 @@ void MemoryController::resetStats() {
 }
 //prints statistics at the end of an epoch or  simulation
 void MemoryController::printStats(bool finalStats) {
+	if (currentClockCycle == 0)
+		return;
 	unsigned myChannel = parentMemorySystem->systemID;
 
 //if we are not at the end of the epoch, make sure to adjust for the actual number of cycles elapsed

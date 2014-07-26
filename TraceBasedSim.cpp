@@ -47,6 +47,7 @@
 #include "MultiChannelMemorySystem.h"
 #include "Transaction.h"
 #include "IniReader.h"
+#include "DataPacket.h"
 
 
 using namespace DRAMSim;
@@ -153,11 +154,12 @@ void usage()
 }
 #endif
 
-void *parseTraceFileLine(string &line, uint64_t &addr, enum TransactionType &transType, uint64_t &clockCycle, TraceType type, bool useClockCycle)
+DataPacket *parseTraceFileLine(string &line, uint64_t &addr, enum TransactionType &transType, uint64_t &clockCycle, TraceType type, bool useClockCycle)
 {
 	size_t previousIndex=0;
 	size_t spaceIndex=0;
 	uint64_t *dataBuffer = NULL;
+	DataPacket *dataPacket = new DataPacket();
 	string addressStr="", cmdStr="", dataStr="", ccStr="";
 
 	switch (type)
@@ -312,6 +314,7 @@ void *parseTraceFileLine(string &line, uint64_t &addr, enum TransactionType &tra
 				iss >> hex >> dataBuffer[i];
 			}
 			PRINTN("\tDATA=");
+			dataPacket = new DataPacket(dataBuffer, strlen, addr);
 			BusPacket::printData(dataBuffer);
 		}
 
@@ -319,7 +322,8 @@ void *parseTraceFileLine(string &line, uint64_t &addr, enum TransactionType &tra
 #endif
 		break;
 	}
-	return dataBuffer;
+//	return dataBuffer;
+	return dataPacket;
 }
 
 #ifndef _SIM_
@@ -528,7 +532,7 @@ int main(int argc, char **argv)
 	uint64_t clockCycle=0;
 	enum TransactionType transType;
 
-	void *data = NULL;
+	DataPacket *data = NULL;
 	int lineNumber = 0;
 	Transaction *trans=NULL;
 	bool pendingTrans = false;

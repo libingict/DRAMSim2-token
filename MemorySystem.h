@@ -60,6 +60,7 @@ public:
 	void update();
 	bool addTransaction(Transaction *trans);
 	bool addTransaction(bool isWrite, uint64_t addr, uint64_t rip=0);
+	bool addTransaction(bool isWrite, uint64_t addr, void *data, size_t dataNumBytes);
 	void printStats(bool finalStats);
 	bool WillAcceptTransaction();
 	void RegisterCallbacks(
