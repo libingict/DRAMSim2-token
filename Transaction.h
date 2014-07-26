@@ -37,7 +37,7 @@
 
 #include "SystemConfiguration.h"
 #include "BusPacket.h"
-#include "DataPacket.h"
+//#include "DataPacket.h"
 using std::ostream; 
 
 namespace DRAMSim
@@ -56,15 +56,16 @@ public:
 	//fields
 	TransactionType transactionType;
 	uint64_t address;
-	DataPacket *data;
+//	DataPacket *data;
+	void *data;
 	uint64_t timeAdded;
 	uint64_t timeReturned;
 	uint64_t RIP;
 
 	friend ostream &operator<<(ostream &os, const Transaction &t);
 	//functions
-//	Transaction(TransactionType transType, uint64_t addr,void *data, uint64_t rip=0);
-	Transaction(TransactionType transType, uint64_t addr,DataPacket *data, uint64_t rip=0);
+	Transaction(TransactionType transType, uint64_t addr,void *data, uint64_t rip=0);
+//	Transaction(TransactionType transType, uint64_t addr,DataPacket *data, uint64_t rip=0);
 	Transaction(const Transaction &t);
 
 	BusPacketType getBusPacketType()

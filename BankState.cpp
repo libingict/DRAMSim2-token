@@ -55,7 +55,6 @@ BankState::BankState(ostream &dramsim_log_):
 		nextActivate(0),
 		nextPrecharge(0),
 		nextPowerUp(0),
-//		starttime(0),
 		lastCommand(READ),
 		stateChangeCountdown(0)
 {}

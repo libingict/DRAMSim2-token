@@ -112,7 +112,7 @@ void Rank::receiveFromBus(BusPacket *packet) {
 #ifndef NO_STORAGE
 		banks[packet->bank].read(packet);
 #else
-		packet->data = new DataPacket();
+//		packet->data = new DataPacket();
 		packet->busPacketType = DATA;
 #endif
 		readReturnPacket.push_back(packet);
@@ -146,7 +146,7 @@ void Rank::receiveFromBus(BusPacket *packet) {
 #ifndef NO_STORAGE
 		banks[packet->bank].read(packet);
 #else
-		packet->data = new DataPacket();
+//		packet->data = new DataPacket();
 		packet->busPacketType = DATA;
 #endif
 
@@ -291,7 +291,7 @@ void Rank::receiveFromBus(BusPacket *packet) {
 #else
 		// end of the line for the write packet
 #endif
-		delete(packet->data);
+//		delete(packet->data);
 		delete (packet);
 		break;
 	default:

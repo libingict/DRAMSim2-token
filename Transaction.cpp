@@ -40,7 +40,7 @@ using namespace std;
 
 namespace DRAMSim {
 
-Transaction::Transaction(TransactionType transType, uint64_t addr, DataPacket *dat,
+Transaction::Transaction(TransactionType transType, uint64_t addr, void *dat,
 		uint64_t rip) :
 		transactionType(transType), address(addr), data(dat), RIP(rip) {
 }
@@ -51,7 +51,7 @@ Transaction::Transaction(const Transaction &t) :
 #ifndef NO_STORAGE
 	ERROR(
 			"Data storage is really outdated and these copies happen in an \n improper way, which will eventually cause problems. Please send an \n email to dramninjas [at] gmail [dot] com if you need data storage");
-//	abort();
+	abort();
 #endif
 }
 

@@ -145,12 +145,14 @@ void MemoryController::receiveFromBus(BusPacket *bpacket) {
 
 //sends read data back to the CPU
 void MemoryController::returnReadData(const Transaction *trans) {
+/*
 	DEBUG("[M-DPKT]: MC adding to return " << *(trans->data) << " ("<<trans->data->getNumBytes()<<")");
 	(*parentMemorySystem->ReturnReadData)(trans->address, *(trans->data->getData()), trans->data->getNumBytes());
-/*	if (parentMemorySystem->ReturnReadData != NULL) {
+*/
+	if (parentMemorySystem->ReturnReadData != NULL) {
 		(*parentMemorySystem->ReturnReadData)(parentMemorySystem->systemID,
 				trans->address, currentClockCycle);
-	}*/
+	}
 }
 
 //gives the memory controller a handle on the rank objects
@@ -548,9 +550,6 @@ void MemoryController::update() {
 		}
 		outgoingCmdPacket = poppedBusPacket;
 		cmdCyclesLeft = tCMD;
-
-//		psQueue.getIdleInterval();
-
 	}
 
 //if not find issuable cmd due to the current write issue, then cancel the current write
@@ -606,7 +605,7 @@ void MemoryController::update() {
 				transactionQueue.erase(transactionQueue.begin() + i);
 				commandQueue.enqueue(ACTcommand);
 				if (transaction->transactionType == DATA_READ) {
-					command->data=0;
+//					command->data=0;
 					pendingReadTransactions.push_back(transaction);
 				} else {
 					// just delete the transaction now that it's a buspacket

@@ -41,7 +41,7 @@ using namespace DRAMSim;
 
 Bank::Bank(ostream &dramsim_log_):
 		currentState(dramsim_log_), 
-//		rowEntries(NUM_COLS),
+		rowEntries(NUM_COLS),
 		dramsim_log(dramsim_log_)
 {}
 
@@ -63,7 +63,7 @@ Bank::Bank(ostream &dramsim_log_):
 
 
 
-/*Bank::DataStruct *Bank::searchForRow(unsigned row, DataStruct *head)
+Bank::DataStruct *Bank::searchForRow(unsigned row, DataStruct *head)
 {
 	while (head != NULL)
 	{
@@ -140,8 +140,8 @@ void Bank::write(const BusPacket *busPacket)
 			PRINT("");
 		}
 	}
-}*/
-unsigned Bank::getByteOffsetInRow(const BusPacket *busPacket)
+}
+/*unsigned Bank::getByteOffsetInRow(const BusPacket *busPacket)
 {
 	// This offset will simply be all of the bits in the unaligned address that
 	// have been removed (i.e. the lower 6 bits for BL=8 and the lower 5 bits
@@ -205,6 +205,6 @@ void Bank::read(BusPacket *busPacket)
 	DEBUG("[DPKT] Rank returning: "<<*(busPacket->data));
 	busPacket->busPacketType = DATA;
 
-}
+}*/
 
 
