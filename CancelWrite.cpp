@@ -488,8 +488,16 @@ void CancelWrite::getToken(BusPacket *buspacket) {
 	unsigned b = buspacket->bank;
 	//64bit data, from low to high mapped to chip 0-7
 	vector<unsigned> demandedtokenperChip = vector<unsigned>(NUM_DEVICES, 0);
-	BusPacket* bankpacket;
-	uint64_t olddata, newdata;;
+	BusPacket* bankpacket =new BusPacket(DATA,
+			buspacket->physicalAddress,
+			buspacket->column,
+			buspacket->row,
+			buspacket->rank,
+			buspacket->bank,
+			buspacket->data,
+			dramsim_log,
+			buspacket->RIP);
+	uint64_t olddata, newdata;
 	uint64_t writtendata, tmp;
 	unsigned setbit, resetbit;
 	newdata = (uint64_t) (buspacket->data);

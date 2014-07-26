@@ -79,7 +79,8 @@ private:
 //	static DataStruct *searchForRow(unsigned row, DataStruct *head);
 	unsigned getByteOffsetInRow(const BusPacket *busPacket);
 	// private member
-	typedef map<uint64_t, byte *> row_map_t;
+//	typedef map<uint64_t, byte *> row_map_t;
+	typedef map<uint64_t, uint64_t *> row_map_t;
 	row_map_t rowEntries;
 };
 }

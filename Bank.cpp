@@ -160,11 +160,14 @@ void Bank::write(const BusPacket *busPacket)
 	unsigned byteOffset = getByteOffsetInRow(busPacket);
 	row_map_t::iterator it;
 	it = rowEntries.find(busPacket->row);
-	byte *rowData;
+//	byte *rowData;
+	uint64_t *rowData;
 	if (it == rowEntries.end())
 	{
 		// row doesn't exist yet, allocate it
-		rowData = (byte *)calloc((NUM_COLS*DEVICE_WIDTH)/8,sizeof(byte));
+//		rowData = (byte *)calloc((NUM_COLS*DEVICE_WIDTH)/8,sizeof(byte));
+//		rowEntries[busPacket->row] = rowData;
+		rowData = (uint64_t *)calloc((NUM_COLS*DEVICE_WIDTH)/8,sizeof(uint64_t));
 		rowEntries[busPacket->row] = rowData;
 	}
 	else
@@ -193,7 +196,8 @@ void Bank::read(BusPacket *busPacket)
 	uint64_t *dataBuf = (uint64_t *)calloc(sizeof(uint64_t), transactionSize);
 	if (it != rowEntries.end())
 	{
-		byte *rowData = it->second;
+//		byte *rowData = it->second;
+		uint64_t *rowData = it->second;
 		memcpy(dataBuf, rowData + (busPacket->column*DEVICE_WIDTH)/8, transactionSize);
 	}
 

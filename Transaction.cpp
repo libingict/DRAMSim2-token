@@ -51,7 +51,7 @@ Transaction::Transaction(const Transaction &t) :
 #ifndef NO_STORAGE
 	ERROR(
 			"Data storage is really outdated and these copies happen in an \n improper way, which will eventually cause problems. Please send an \n email to dramninjas [at] gmail [dot] com if you need data storage");
-	abort();
+//	abort();
 #endif
 }
 
