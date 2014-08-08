@@ -145,10 +145,6 @@ void MemoryController::receiveFromBus(BusPacket *bpacket) {
 
 //sends read data back to the CPU
 void MemoryController::returnReadData(const Transaction *trans) {
-/*
-	DEBUG("[M-DPKT]: MC adding to return " << *(trans->data) << " ("<<trans->data->getNumBytes()<<")");
-	(*parentMemorySystem->ReturnReadData)(trans->address, *(trans->data->getData()), trans->data->getNumBytes());
-*/
 	if (parentMemorySystem->ReturnReadData != NULL) {
 		(*parentMemorySystem->ReturnReadData)(parentMemorySystem->systemID,
 				trans->address, currentClockCycle);
@@ -283,7 +279,7 @@ void MemoryController::update() {
 //pass a pointer to a poppedBusPacket
 //function returns true if there is something valid in poppedBusPacket
 	//PRINT("STEP 2");
-	psQueue.getIdleInterval();
+//	psQueue.getIdleInterval();
 	bool popWCQueue = false;
 	bool popqueue = false;
 	BusPacket *poppedWCPacket;
@@ -296,8 +292,8 @@ void MemoryController::update() {
 	}
 	//PRINT("STEP 21");
 	if (popqueue) {
-		psQueue.iniPredictTable(poppedBusPacket->rank, poppedBusPacket->bank,
-				poppedBusPacket->physicalAddress, poppedBusPacket->RIP);
+/*		psQueue.iniPredictTable(poppedBusPacket->rank, poppedBusPacket->bank,
+				poppedBusPacket->physicalAddress, poppedBusPacket->RIP);*/
 		unsigned rank = poppedBusPacket->rank;
 		unsigned bank = poppedBusPacket->bank;
 		if (poppedBusPacket->busPacketType == WRITE
@@ -324,6 +320,10 @@ void MemoryController::update() {
 				}
 			}
 			if (cancelWrite.writepriority[rank][bank]) {
+				if(poppedBusPacket->busPacketType==WRITE) {
+					bankStates[rank][bank].stateChangeCountdown =
+							WRITE_TO_READ_DELAY_B;
+				}
 				cancelWrite.ongoingWrite[rank][bank] = new BusPacket(WRITE,
 						poppedBusPacket->physicalAddress,
 						poppedBusPacket->column, poppedBusPacket->row,
@@ -838,7 +838,7 @@ void MemoryController::update() {
 	}
 	commandQueue.step();
 	cancelWrite.update();
-	psQueue.update();
+//	psQueue.update();
 }
 
 bool MemoryController::WillAcceptTransaction() {
@@ -982,16 +982,16 @@ void MemoryController::printStats(bool finalStats) {
 		PRINT(" ("<<totalWritesPerRank[r] * bytesPerTransaction<<" bytes)");
 		PRINTN("        -Active  : " << totalActPerRank[r]);
 		PRINTN("        -Precharge  : " << totalPrePerRank[r]);
-		PRINTN("        -CanceledWrites : " << canceledwriteperRank[r]);
+		PRINT("        -CanceledWrites : " << canceledwriteperRank[r]);
 
 		for (size_t j = 0; j < NUM_BANKS; j++) {
 			PRINT(
 					"        -Bandwidth / Latency  (Bank " <<j<<"): " <<bandwidth[SEQUENTIAL(r,j)] << " GB/s\t\t" <<averageLatency[SEQUENTIAL(r,j)] << " ns");
 
 		}
-		for (size_t b = 0; b < NUM_BANKS; b++) {
+/*		for (size_t b = 0; b < NUM_BANKS; b++) {
 			printAccesscount(r, b);
-		}
+		}*/
 		// factor of 1000 at the end is to account for the fact that totalEnergy is accumulated in mJ since IDD values are given in mA
 		backgroundPower[r] = ((double) backgroundEnergy[r]
 				/ (double) (cyclesElapsed)) * Vdd / 1000.0;
@@ -1014,7 +1014,7 @@ void MemoryController::printStats(bool finalStats) {
 					burstPower[r], refreshPower[r], actprePower[r]);
 		}
 
-		/*		PRINT(" == Power Data for Rank        " << r);
+				PRINT(" == Power Data for Rank        " << r);
 		 PRINT("   Average Power (watts)     : " << averagePower[r]);
 		 PRINT("     -Read   (mwatts)     : " << readPower[r]);
 		 PRINT("     -Write  (mwatts)     : " << writePower[r]);
@@ -1023,7 +1023,7 @@ void MemoryController::printStats(bool finalStats) {
 		 PRINT("     -Burst      (watts)     : " << burstPower[r]);
 		 PRINT("     -Refresh    (watts)     : " << refreshPower[r]);
 
-		 PRINT("     -ReadEnergy   (pJ)     : " << readEnergy[r]);
+/*		 PRINT("     -ReadEnergy   (pJ)     : " << readEnergy[r]);
 		 PRINT("     -WriteEnergy  (pJ)     : " << writeEnergy[r]);*/
 		if (VIS_FILE_OUTPUT) {
 			//	cout << "c="<<myChannel<< " r="<<r<<"writing to csv out on cycle "<< currentClockCycle<<endl;
@@ -1096,7 +1096,6 @@ void MemoryController::printStats(bool finalStats) {
 #ifdef LOG_OUTPUT
 	dramsim_log.flush();
 #endif
-
 	resetStats();
 }
 MemoryController::~MemoryController() {

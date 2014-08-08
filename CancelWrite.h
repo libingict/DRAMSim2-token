@@ -38,7 +38,7 @@ public:
 	bool isEmpty(unsigned rank);
 	void getToken(BusPacket *buspacket);
 	void releaseToken();
-	bool powerAllowable();
+	bool powerAllowable(unsigned bank);
 	vector<vector<BusPacket*> > ongoingWrite;
 //	vector<vector<BusPacket*> > canceledWrite;
 	vector<vector<bool> > writepriority;
@@ -59,6 +59,8 @@ private:
 //	vector<vector<uint64_t> > readcout;
 	ostream &dramsim_log;
 	unsigned maxToken; //Per chip per bank token
+	vector<vector<unsigned> > setbit;
+	vector<vector<unsigned> > resetbit;
 
 };
 }
