@@ -181,6 +181,7 @@ void MemoryController::update() {
 					case PRECHARGE:
 						bankStates[i][j].currentBankState = Idle;
 						break;
+						if(WRITECANCEL){
 					case WRITE:
 						if (parentMemorySystem->WriteDataDone != NULL) {
 							if (cancelWrite.ongoingWrite[i][j] != NULL) {
@@ -194,6 +195,7 @@ void MemoryController::update() {
 							}
 						}
 						break;
+						}
 					default:
 						break;
 					}
@@ -220,6 +222,14 @@ void MemoryController::update() {
 		if (dataCyclesLeft == 0) {
 			//inform upper levels that a write is done
 			//if lastCommand is write but WriteCancel,then not return;
+			if(!WRITECANCEL){
+				if (parentMemorySystem->WriteDataDone != NULL) {
+					(*parentMemorySystem->WriteDataDone)(
+							parentMemorySystem->systemID,
+							outgoingDataPacket->physicalAddress,
+							currentClockCycle);
+				}
+			}
 			(*ranks)[outgoingDataPacket->rank]->receiveFromBus(
 					outgoingDataPacket);
 			outgoingDataPacket = NULL;
@@ -283,19 +293,20 @@ void MemoryController::update() {
 	bool popWCQueue = false;
 	bool popqueue = false;
 	BusPacket *poppedWCPacket;
-	if (WRITECANCEL) {
+//	if (WRITECANCEL) {
 		popWCQueue = cancelWrite.cancelwrite(&poppedWCPacket); //then we could know if the last write is canceled.
 		popqueue = popWCQueue;
 		poppedBusPacket = poppedWCPacket;
-	} else {
-		popqueue = commandQueue.pop(&poppedBusPacket);
-	}
+//	} else {
+//		popqueue = commandQueue.pop(&poppedBusPacket);
+//	}
 	//PRINT("STEP 21");
 	if (popqueue) {
 /*		psQueue.iniPredictTable(poppedBusPacket->rank, poppedBusPacket->bank,
 				poppedBusPacket->physicalAddress, poppedBusPacket->RIP);*/
 		unsigned rank = poppedBusPacket->rank;
 		unsigned bank = poppedBusPacket->bank;
+		if(WRITECANCEL){
 		if (poppedBusPacket->busPacketType == WRITE
 				|| poppedBusPacket->busPacketType == WRITE_P) { //requests from writequeue
 			if (parentMemorySystem->WriteDataDone != NULL) {
@@ -332,6 +343,7 @@ void MemoryController::update() {
 						poppedBusPacket->RIP);
 			}
 		}
+	}
 		if (poppedBusPacket->busPacketType == WRITE
 				|| poppedBusPacket->busPacketType == WRITE_P) {
 			BusPacket* bp = new BusPacket(DATA,
@@ -341,6 +353,7 @@ void MemoryController::update() {
 			writeDataToSend.push_back(bp);
 			writeDataCountdown.push_back(WL);
 		} else {
+			if(WRITECANCEL){
 			if (parentMemorySystem->WriteDataDone != NULL) {
 				if (cancelWrite.ongoingWrite[rank][bank] != NULL
 						&& (!cancelWrite.writecancel[rank][bank])) {
@@ -352,6 +365,7 @@ void MemoryController::update() {
 					cancelWrite.ongoingWrite[rank][bank] = NULL;
 				}
 			}
+		}
 		}
 		//
 		//update each bank's state based on the command that was just popped out of the command queue
@@ -571,7 +585,7 @@ void MemoryController::update() {
 
 		//if we have room, break up the transaction into the appropriate commands
 		//and add them to the command queue
-		if (!WRITECANCEL) {
+		/*if (!WRITECANCEL) {
 			if (commandQueue.hasRoomFor(2, newTransactionRank,
 					newTransactionBank)) {
 				if (DEBUG_ADDR_MAP) {
@@ -612,21 +626,21 @@ void MemoryController::update() {
 					delete transaction;
 				}
 				commandQueue.enqueue(command);
-				/* only allow one transaction to be scheduled per cycle -- this should
+				 only allow one transaction to be scheduled per cycle -- this should
 				 * be a reasonable assumption considering how much logic would be
 				 * required to schedule multiple entries per cycle (parallel data
 				 * lines, switching logic, decision logic)
-				 */
+
 				break;
 			} else // no room, do nothing this cycle
 			{
 				//PRINT( "== Warning - No room in command queue" << endl;
 			}
-		}
+		}*/
 
 		// If we have a read, save the transaction so when the data comes back
 		// in a bus packet, we can staple it back into a transaction and return it
-		if (WRITECANCEL) {
+//		if (WRITECANCEL) {
 			bool added = false;
 			bool found = false;
 			BusPacketType bpType = transaction->getBusPacketType();
@@ -681,7 +695,7 @@ void MemoryController::update() {
 			 * lines, switching logic, decision logic)
 			 */
 
-		}
+//		}
 	}
 
 //calculate power
@@ -1023,8 +1037,8 @@ void MemoryController::printStats(bool finalStats) {
 		 PRINT("     -Burst      (watts)     : " << burstPower[r]);
 		 PRINT("     -Refresh    (watts)     : " << refreshPower[r]);
 
-/*		 PRINT("     -ReadEnergy   (pJ)     : " << readEnergy[r]);
-		 PRINT("     -WriteEnergy  (pJ)     : " << writeEnergy[r]);*/
+		 PRINT("     -ReadEnergy   (pJ)     : " << readEnergy[r]);
+		 PRINT("     -WriteEnergy  (pJ)     : " << writeEnergy[r]);
 		if (VIS_FILE_OUTPUT) {
 			//	cout << "c="<<myChannel<< " r="<<r<<"writing to csv out on cycle "<< currentClockCycle<<endl;
 			// write the vis file output
