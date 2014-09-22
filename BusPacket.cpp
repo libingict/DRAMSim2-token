@@ -55,7 +55,7 @@ BusPacket::BusPacket(BusPacketType packtype, uint64_t physicalAddr,
 	bank(b),
 	rank(r),
 	physicalAddress(physicalAddr),
-	RIP(rip){
+	RIP(rip),iterNumber(8){
 	if(data!=NULL &&( busPacketType == WRITE||busPacketType == ACTIVATE))
 	{
 		dataPacket=new DataPacket(data->getData(),data->getoldData());

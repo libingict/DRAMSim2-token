@@ -67,6 +67,7 @@ public:
 	uint64_t physicalAddress;
 	DataPacket *dataPacket;
 	uint64_t RIP;
+	unsigned iterNumber ;
 
 	//Functions
 	BusPacket(BusPacketType packtype, uint64_t physicalAddr, unsigned col, unsigned rw, unsigned r, unsigned b, DataPacket *dataPacket, ostream &dramsim_log_,uint64_t rip=0);
