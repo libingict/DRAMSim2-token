@@ -65,8 +65,8 @@ class Bank
 public:
 	//functions
 	Bank(ostream &dramsim_log_);
-	void read(BusPacket *busPacket);
-	void write(const BusPacket *busPacket);
+//	void read(BusPacket *busPacket);
+//	void write(const BusPacket *busPacket);
 
 	//fields
 	BankState currentState;

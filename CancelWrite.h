@@ -36,9 +36,9 @@ public:
 	void issueWC(unsigned r, unsigned b);
 	void update();
 	bool isEmpty(unsigned rank);
-	void getToken(BusPacket *buspacket);
+//	void getToken(BusPacket *buspacket);
 	void releaseToken();
-	bool powerAllowable(unsigned bank);
+	bool powerAllowable(BusPacket *buspacket);
 	vector<vector<BusPacket*> > ongoingWrite;
 //	vector<vector<BusPacket*> > canceledWrite;
 	vector<vector<bool> > writepriority;

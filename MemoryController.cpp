@@ -136,7 +136,7 @@ void MemoryController::receiveFromBus(BusPacket *bpacket) {
 	//add to return read data queue
 	returnTransaction.push_back(
 			new Transaction(RETURN_DATA, bpacket->physicalAddress,
-					bpacket->data, bpacket->RIP));
+					bpacket->RIP));
 	totalReadsPerBank[SEQUENTIAL(bpacket->rank,bpacket->bank)]++;
 
 	// this delete statement saves a mindboggling amount of memory
@@ -339,7 +339,7 @@ void MemoryController::update() {
 						poppedBusPacket->physicalAddress,
 						poppedBusPacket->column, poppedBusPacket->row,
 						poppedBusPacket->rank, poppedBusPacket->bank,
-						poppedBusPacket->data, dramsim_log,
+						poppedBusPacket->dataPacket, dramsim_log,
 						poppedBusPacket->RIP);
 			}
 		}
@@ -348,7 +348,7 @@ void MemoryController::update() {
 				|| poppedBusPacket->busPacketType == WRITE_P) {
 			BusPacket* bp = new BusPacket(DATA,
 					poppedBusPacket->physicalAddress, poppedBusPacket->column,
-					poppedBusPacket->row, rank, bank, poppedBusPacket->data,
+					poppedBusPacket->row, rank, bank, poppedBusPacket->dataPacket,
 					dramsim_log, poppedBusPacket->RIP);
 			writeDataToSend.push_back(bp);
 			writeDataCountdown.push_back(WL);
@@ -646,11 +646,11 @@ void MemoryController::update() {
 			BusPacketType bpType = transaction->getBusPacketType();
 			BusPacket *command = new BusPacket(bpType, transaction->address,
 					newTransactionColumn, newTransactionRow, newTransactionRank,
-					newTransactionBank, transaction->data, dramsim_log,
+					newTransactionBank, new DataPacket(transaction->get_newdata(),transaction->get_oldata()), dramsim_log,
 					transaction->RIP);
+//			PRINTN("Input command: ");command->print();PRINTN("\n");
 			if (transaction->transactionType == DATA_READ) {
 				Transaction *trans = new Transaction(*transaction);
-				command->data=0;
 				added = cancelWrite.addRequest(trans, command, found);
 				addedRdTrans++;
 				if (found) {
@@ -661,7 +661,6 @@ void MemoryController::update() {
 				if (added) {
 					pendingReadTransactions.push_back(transaction);
 					transactionQueue.erase(transactionQueue.begin() + i);
-					//PRINT("added Transaction Read "<<*transaction);
 					break;
 				}
 			} else if (transaction->transactionType == DATA_WRITE) {
@@ -864,6 +863,7 @@ bool MemoryController::addTransaction(Transaction *trans) {
 	if (WillAcceptTransaction()) {
 		trans->timeAdded = currentClockCycle;
 		transactionQueue.push_back(trans);
+		PRINT("("<<currentClockCycle<<")=="<< *trans);
 		return true;
 	} else {
 		return false;

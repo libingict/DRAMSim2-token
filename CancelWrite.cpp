@@ -13,10 +13,10 @@ using namespace DRAMSim;
 
 CancelWrite::CancelWrite(vector<vector<BankState> > &states,
 		ostream &dramsim_log_, vector<Rank *> *&ranks_) :
-		dramsim_log(dramsim_log_), bankStates(states), writeQueue(states,
+		 bankStates(states), writeQueue(states,
 				dramsim_log_), readQueue(states, dramsim_log_), ranks(ranks_), writeQueueDepth(
 				CMD_QUEUE_DEPTH), nextRank(0), nextBank(0), nextRankPRE(0), nextBankPRE(
-				0), maxToken(DEVICE_WIDTH) {
+				0), dramsim_log(dramsim_log_),maxToken(DEVICE_WIDTH*2) {
 	currentClockCycle = 0;
 	writecancel = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
@@ -63,9 +63,9 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 						&& i < wrqueue.size() - 1
 						&& wrqueue[i + 1]->physicalAddress
 								== packet->physicalAddress) {
-					transaction->data = wrqueue[i + 1]->data;
+					transaction->set_data(wrqueue[i + 1]->dataPacket->getData(),0);
 				} else {
-					transaction->data = packet->data;
+					transaction->set_data(packet->dataPacket->getData(),0);
 				}
 				found = true;
 				break;
@@ -78,12 +78,12 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 			readQueue.enqueue(
 					new BusPacket(ACTIVATE, buspacket->physicalAddress,
 							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->data, dramsim_log,
+							buspacket->bank, NULL, dramsim_log,
 							buspacket->RIP));
 			readQueue.enqueue(
 					new BusPacket(READ, buspacket->physicalAddress,
 							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->data, dramsim_log,
+							buspacket->bank, NULL, dramsim_log,
 							buspacket->RIP));
 			return true;
 		} else {
@@ -101,12 +101,12 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 						&& i < queue.size() - 1
 						&& queue[i + 1]->physicalAddress
 								== packet->physicalAddress) { // the write request is paired
-					queue[i]->data = transaction->data;
-					queue[i + 1]->data = transaction->data;
+					queue[i]->dataPacket->setData(transaction->get_newdata(),transaction->get_oldata());
+					queue[i + 1]->dataPacket->setData(transaction->get_newdata(),transaction->get_oldata());
 					// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
 				} else {
 					//the activated has popped.
-					queue[i]->data = transaction->data;
+					queue[i]->dataPacket->setData(transaction->get_newdata(),transaction->get_oldata());
 				}
 				break;
 			}
@@ -120,12 +120,12 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 			writeQueue.enqueue(
 					new BusPacket(ACTIVATE, buspacket->physicalAddress,
 							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->data, dramsim_log,
+							buspacket->bank, buspacket->dataPacket, dramsim_log,
 							buspacket->RIP));
 			writeQueue.enqueue(
 					new BusPacket(WRITE, buspacket->physicalAddress,
 							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->data, dramsim_log,
+							buspacket->bank, buspacket->dataPacket,dramsim_log,
 							buspacket->RIP));
 			return true;
 		} else {
@@ -142,14 +142,14 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 	for (unsigned i = 0; i < queue.size(); i++) {
 		BusPacket *request = queue[i];
 		if (requestQueue.isIssuable(request)) { //check for the timing constraint
-//			if (request->busPacketType == WRITE ) {
-//				if(!powerAllowable(request->bank)){
-//				return false;
-//				}
-//			}
+			if (request->busPacketType == WRITE ) {
+				if(!powerAllowable(request)){
+				return false;
+				}
+			}
 				busPacket = new BusPacket(request->busPacketType,
 						request->physicalAddress, request->column, request->row,
-						request->rank, request->bank, request->data,
+						request->rank, request->bank, request->dataPacket,
 						dramsim_log, request->RIP);
 				/*
 				 if the bus packet before is an activate, that is the act that was
@@ -232,7 +232,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 				}
 				if (writepriority[nextRank][nextBank]) {
 					if (!WRITECANCEL) {
-						if (writequeue.size() <= 0 && !readqueue.empty()) {
+						if (writequeue.size() <= 0) {
 							writepriority[nextRank][nextBank] = false;
 						} else {
 							issueWrite = issueRequest(nextRank, nextBank,
@@ -264,7 +264,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 													ongoingWrite[nextRank][nextBank]->row,
 													ongoingWrite[nextRank][nextBank]->rank,
 													ongoingWrite[nextRank][nextBank]->bank,
-													ongoingWrite[nextRank][nextBank]->data,
+													ongoingWrite[nextRank][nextBank]->dataPacket,
 													dramsim_log,
 													ongoingWrite[nextRank][nextBank]->RIP));
 									it = writequeue.begin();
@@ -275,7 +275,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 													ongoingWrite[nextRank][nextBank]->row,
 													ongoingWrite[nextRank][nextBank]->rank,
 													ongoingWrite[nextRank][nextBank]->bank,
-													ongoingWrite[nextRank][nextBank]->data,
+													NULL,
 													dramsim_log,
 													ongoingWrite[nextRank][nextBank]->RIP));
 									delete ongoingWrite[nextRank][nextBank];
@@ -301,9 +301,6 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 					}
 				}
 				if (issueWrite || issueRead) {
-					/*					if (issueWrite && (*busPacket)->busPacketType == WRITE) {
-					 getToken(*busPacket);
-					 }*/
 					return true;
 				}
 			}
@@ -352,7 +349,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 															readqueue[i]->row,
 															readqueue[i]->rank,
 															readqueue[i]->bank,
-															readqueue[i]->data,
+															NULL,
 															dramsim_log,
 															readqueue[i]->RIP);
 											readqueue.insert(it, bpacket);
@@ -366,7 +363,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 										>= bankStates[nextRankPRE][nextBankPRE].nextPrecharge) {
 									sendingPRE = true;
 									*busPacket = new BusPacket(PRECHARGE, 0, 0,
-											0, nextRankPRE, nextBankPRE, 0,
+											0, nextRankPRE, nextBankPRE, NULL,
 											dramsim_log);
 //								PRINT("writeP, write no found, set PRE r["<<nextRankPRE<<"]b["<<nextBankPRE<<"] ");
 									return true;
@@ -402,7 +399,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 																writequeue[i]->row,
 																writequeue[i]->rank,
 																writequeue[i]->bank,
-																writequeue[i]->data,
+																writequeue[i]->dataPacket,
 																dramsim_log,
 																writequeue[i]->RIP);
 												writequeue.insert(it, bpacket);
@@ -416,8 +413,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 											>= bankStates[nextRankPRE][nextBankPRE].nextPrecharge) {
 										sendingPRE = true;
 										*busPacket = new BusPacket(PRECHARGE, 0,
-												0, 0, nextRankPRE, nextBankPRE,
-												0, dramsim_log);
+												0, 0, nextRankPRE, nextBankPRE,NULL,
+												dramsim_log);
 //									PRINTN(
 //											"readP, read not empty, not found in read, set PRE r["<<nextRankPRE<<"]b["<<nextBankPRE<<"] ");
 										return true;
@@ -435,8 +432,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 												 if the bus packet i is an activate, and also the next packet i+1 is write,
 												 then we pop i and i+1, return i+1 packet
 												 */
-//													if (powerAllowable(
-//												 nextBankPRE)) {
+													if (powerAllowable(
+															writequeue[i])) {
 												*busPacket =
 														new BusPacket(WRITE,
 																writequeue[i]->physicalAddress,
@@ -444,7 +441,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 																writequeue[i]->row,
 																writequeue[i]->rank,
 																writequeue[i]->bank,
-																writequeue[i]->data,
+																writequeue[i]->dataPacket,
 																dramsim_log,
 																writequeue[i]->RIP);
 												if (writequeue[i]->busPacketType
@@ -467,9 +464,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 															writequeue.begin()
 																	+ i);
 												}
-//													getToken(*busPacket);
 												return true;
-//												}
+												}
 //												PRINT(
 //														"clock "<<currentClockCycle<<" readP, read empty, emit write 0x" << hex << (*busPacket)->physicalAddress << dec<<" r["<<nextRankPRE<<"]b["<<nextBankPRE<<"] "<<" ongoing NULL");
 //																								delete ongoingWrite[nextRankPRE][nextBankPRE];
@@ -487,7 +483,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 												*busPacket = new BusPacket(
 														PRECHARGE, 0, 0, 0,
 														nextRankPRE,
-														nextBankPRE, 0,
+														nextBankPRE, NULL,
 														dramsim_log);
 												return true;
 											}
@@ -514,45 +510,35 @@ bool CancelWrite::isEmpty(unsigned r) {
 	} else
 		return false;
 }
-void CancelWrite::getToken(BusPacket *buspacket) {
+/*void CancelWrite::getToken(BusPacket *buspacket) {
 	unsigned b = buspacket->bank;
 //	srand((unsigned) time(NULL));
 	//64bit data, from low to high mapped to chip 0-7
 	unsigned demandedtokenperChip;
-	/*BusPacket* bankpacket =new BusPacket(DATA,
-	 buspacket->physicalAddress,
-	 buspacket->column,
-	 buspacket->row,
-	 buspacket->rank,
-	 buspacket->bank,
-	 buspacket->data,
-	 dramsim_log,
-	 buspacket->RIP);
-	 uint64_t olddata, newdata;
+	 uint64_t oldata, newdata;
 	 uint64_t writtendata, tmp;
-	 newdata = (uint64_t) (buspacket->data);
-	 (*ranks)[r]->banks[b].read(bankpacket);
-	 olddata = (uint64_t) (bankpacket->data);
+	 newdata = buspacket->dataPacket->getnewData();
+	 oldata = buspacket->dataPacket->getoldData();
 	 writtendata = olddata ^ newdata;
-	 tmp = writtendata;*/
+	 tmp = writtendata;
 //actually this is different for each chip.
 	for (size_t i = 0; i < NUM_DEVICES; i++) {
-//		setbit = 0;
-//		resetbit = 0;
-//		setbit = rand() % (DEVICE_WIDTH+1);
-//		resetbit = DEVICE_WIDTH - setbit;
-		/*for (size_t d = 0; d < bit_width; d++) {
+		setbit = 0;
+		resetbit = 0;
+		resetbit = DEVICE_WIDTH - setbit;
+		for (size_t d = 0; d < DEVICE_WIDTH; d++) {
 		 tmp = tmp >> d;
 		 if (writtendata & 1)
 		 setbit++;
 		 else
 		 resetbit++;
-		 }*/
-		demandedtokenperChip = setbit[i][b] / 2 + resetbit[i][b];
+		 }
+		double up = (double) setbit[i][b] / 2;
+		demandedtokenperChip = ceil(up) + resetbit[i][b];
 		tokenpool[i][b] = tokenpool[i][b] - demandedtokenperChip;
 		tokencountdown[i][b] = WRITE_TO_PRE_DELAY;
 	}
-}
+}*/
 void CancelWrite::releaseToken() {
 	for (size_t r = 0; r < NUM_RANKS; r++) {
 		for (size_t b = 0; b < NUM_BANKS; b++) {
@@ -572,19 +558,47 @@ void CancelWrite::releaseToken() {
 		}
 	}
 }
-bool CancelWrite::powerAllowable(unsigned bank) {
-	unsigned b = bank;
-	srand((unsigned) time(NULL));
-	unsigned demandedtoken;
+bool CancelWrite::powerAllowable(BusPacket *buspacket) {
+	unsigned b = buspacket->bank;
+	//64bit data, from low to high mapped to chip 0-7
+	unsigned demandedtokenperChip;
+	 uint64_t oldata, newdata;
+	 uint64_t writtendata, tmp;
+//	 PRINT("dataPacket is :"<< buspacket->dataPacket);
+	 newdata = buspacket->dataPacket->getData();
+	 oldata = buspacket->dataPacket->getoldData();
+	 PRINT("newdata is :"<<hex<< newdata<<" oldata is "<< oldata<<dec);
+//	 buspacket->print();
+	 writtendata = oldata ^ newdata;
+	 tmp = writtendata;
+//actually this is different for each chip.
 	for (unsigned i = 0; i < NUM_DEVICES; i++) {
-		setbit[i][b] = rand() % (DEVICE_WIDTH + 1);
-		resetbit[i][b] = DEVICE_WIDTH - setbit[i][b];
-		double up = (double) setbit[i][b] / 2;
-		demandedtoken = ceil(up) + resetbit[i][b];
-		if (tokenpool[i][b] < demandedtoken) {
+		setbit[i][b]=0;
+		resetbit[i][b]=0;
+		if (tmp & 1){
+			if(newdata &1)
+				setbit[i][b]++;
+			else
+				resetbit[i][b]++;
+		}
+		for (size_t d = 0; d < DEVICE_WIDTH-1; d++) {
+			tmp = tmp >> 1;
+			newdata= newdata >> 1;
+			if (tmp & 1){
+				if(newdata &1)
+					setbit[i][b]++;
+				else
+					resetbit[i][b]++;
+				 }
+		}
+//		double up = (double) setbit[i][b] / 2;
+//		demandedtokenperChip = ceil(up) + resetbit[i][b];
+		demandedtokenperChip = setbit[i][b] + resetbit[i][b]*2;
+//		PRINT(" Bank "<<b<<" Chip "<< i<<" setbit "<<setbit[i][b]<<" resetbit "<<resetbit[i][b]<<" tokenpool "<<tokenpool[i][b]<<" demandedtoken "<<demandedtokenperChip);
+		if (tokenpool[i][b] < demandedtokenperChip) {
 			return false;
 		} else {
-			tokenpool[i][b] = tokenpool[i][b] - demandedtoken;
+			tokenpool[i][b] = tokenpool[i][b] - demandedtokenperChip;
 			tokencountdown[i][b] = WRITE_TO_PRE_DELAY;
 		}
 	}
@@ -595,7 +609,7 @@ void CancelWrite::update() {
 	writeQueue.step();
 	readQueue.step();
 	step();
-//	releaseToken();
+	releaseToken();
 }
 /*void CancelWrite::print(){
 

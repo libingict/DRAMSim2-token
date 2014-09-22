@@ -50,6 +50,7 @@ namespace DRAMSim
 			void printStats(bool finalStats);
 			bool willAcceptTransaction(); 
 			bool willAcceptTransaction(uint64_t addr); 
+			void receiveData(uint64_t addr,uint64_t oldata, uint64_t newdata);
 			std::ostream &getLogFile();
 
 			void RegisterCallbacks( 

@@ -48,6 +48,7 @@ class MultiChannelMemorySystem : public SimulatorObject
 			bool addTransaction(Transaction *trans);
 			bool addTransaction(const Transaction &trans);
 			bool addTransaction(bool isWrite, uint64_t addr, uint64_t rip=0);
+			void receiveData(uint64_t addr,uint64_t oldata, uint64_t newdata);
 			bool willAcceptTransaction(); 
 			bool willAcceptTransaction(uint64_t addr); 
 			void update();
@@ -60,6 +61,7 @@ class MultiChannelMemorySystem : public SimulatorObject
 
 	void InitOutputFiles(string tracefilename);
 	void setCPUClockSpeed(uint64_t cpuClkFreqHz);
+
 
 	//output file
 	std::ofstream visDataOut;

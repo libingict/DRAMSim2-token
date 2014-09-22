@@ -557,7 +557,8 @@ int main(int argc, char **argv)
 				if (line.size() > 0)
 				{
 					data = parseTraceFileLine(line, addr, transType,clockCycle, traceType,useClockCycle);
-					trans = new Transaction(transType, addr, data);
+					trans = new Transaction(transType, addr);
+//					trans->set_data(data,0);
 					alignTransactionAddress(*trans); 
 
 					if (i>=clockCycle)

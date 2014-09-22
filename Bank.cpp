@@ -79,7 +79,7 @@ Bank::DataStruct *Bank::searchForRow(unsigned row, DataStruct *head)
 	return NULL;
 }
 
-void Bank::read(BusPacket *busPacket)
+/*void Bank::read(BusPacket *busPacket)
 {
 	DataStruct *rowHeadNode = rowEntries[busPacket->column];
 	DataStruct *foundNode = NULL;
@@ -99,10 +99,10 @@ void Bank::read(BusPacket *busPacket)
 
 	//the return packet should be a data packet, not a read packet
 	busPacket->busPacketType = DATA;
-}
+}*/
 
 
-void Bank::write(const BusPacket *busPacket)
+/*void Bank::write(const BusPacket *busPacket)
 {
 	//TODO: move all the error checking to BusPacket so once we have a bus packet,
 	//			we know the fields are all legal
@@ -140,7 +140,7 @@ void Bank::write(const BusPacket *busPacket)
 			PRINT("");
 		}
 	}
-}
+}*/
 /*unsigned Bank::getByteOffsetInRow(const BusPacket *busPacket)
 {
 	// This offset will simply be all of the bits in the unaligned address that

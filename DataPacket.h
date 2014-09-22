@@ -28,7 +28,7 @@ namespace DRAMSim {
 		 * Constructor to be used if we are using NO_STORAGE
 		 *
 		 */
-		DataPacket() : _data(NULL), _numBytes(0), _unalignedAddr(0)
+		DataPacket() : _data(0), _oldata(0)
 		{}
 
 		/**
@@ -37,47 +37,44 @@ namespace DRAMSim {
 		 * @param unalignedAddr DRAMSim will typically kill the bottom bits to align them to the DRAM bus width, but if an access is unaligned (and smaller than the transaction size, the raw address will need to be known to properly execute the read/write)
 		 *
 		 */
-		DataPacket(uint64_t *data, size_t numBytes, uint64_t unalignedAddr) :
-			_data(data), _numBytes(numBytes), _unalignedAddr(unalignedAddr)
+		DataPacket(uint64_t data, uint64_t oldata) :
+			_data(data), _oldata(oldata)
 		{}
-		virtual ~DataPacket()
+/*		virtual ~DataPacket()
 		{
-			if (_data)
-			{
-				free(_data); 
-			}
+		if (_data) {
+			free(_data);
 		}
+		if (_oldata) {
+			free (_oldata);
+		}
+	}*/
 
 		// accessors
-		size_t getNumBytes() const
-		{
-			return _numBytes; 
-		}
-		uint64_t *getData() const
+		uint64_t getData() const
 		{
 			return _data;
 		}
-		uint64_t getAddr() const
-		{
-			return _unalignedAddr; 
+		uint64_t getoldData() const{
+			return _oldata;
 		}
-		void setData(const uint64_t *data, size_t size)
+		void setData(const uint64_t data, uint64_t oldata)
 		{
-			_data = (uint64_t *)calloc(size,sizeof(uint64_t));
-			memcpy(_data, data, size);
-			_numBytes = size; 
+//			_data = (uint64_t *)calloc(size,sizeof(uint64_t));
+//			memcpy(_data, data, uint64_t);
+			_data=data;
+			_oldata=oldata;
 		}
 		bool hasNoData() const
 		{
-			return (_data == NULL || _numBytes == 0);
+			return (_data == 0 && _oldata==0);
 		}
 
 		friend ostream &operator<<(ostream &os, const DataPacket &dp);
 
 	private:
-		uint64_t *_data;
-		size_t _numBytes;
-		uint64_t _unalignedAddr;
+		uint64_t _data;
+		uint64_t _oldata;
 	};
 
 

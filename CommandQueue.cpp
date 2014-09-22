@@ -204,8 +204,7 @@ bool CommandQueue::pop(BusPacket **busPacket) {
 			if (!foundActiveOrTooEarly
 					&& bankStates[refreshRank][0].currentBankState
 							!= PowerDown) {
-				*busPacket = new BusPacket(REFRESH, 0, 0, 0, refreshRank, 0, 0,
-						dramsim_log);
+				*busPacket = new BusPacket(REFRESH, 0, 0, 0, refreshRank, 0, NULL,dramsim_log);
 				refreshRank = -1;
 				refreshWaiting = false;
 				sendingREF = true;
@@ -257,7 +256,6 @@ bool CommandQueue::pop(BusPacket **busPacket) {
 					}
 
 				}
-
 				//if we found something, break out of do-while
 				if (foundIssuable)
 					break;
@@ -325,7 +323,7 @@ bool CommandQueue::pop(BusPacket **busPacket) {
 									>= bankStates[refreshRank][b].nextPrecharge) {
 						rowAccessCounters[refreshRank][b] = 0;
 						*busPacket = new BusPacket(PRECHARGE, 0, 0, 0,
-								refreshRank, b, 0, dramsim_log);
+								refreshRank, b, NULL,dramsim_log);
 						sendingREForPRE = true;
 					}
 					break;
@@ -346,8 +344,7 @@ bool CommandQueue::pop(BusPacket **busPacket) {
 			if (sendREF
 					&& bankStates[refreshRank][0].currentBankState
 							!= PowerDown) {
-				*busPacket = new BusPacket(REFRESH, 0, 0, 0, refreshRank, 0, 0,
-						dramsim_log);
+				*busPacket = new BusPacket(REFRESH, 0, 0, 0, refreshRank, 0, NULL,dramsim_log);
 				refreshRank = -1;
 				refreshWaiting = false;
 				sendingREForPRE = true;
@@ -466,7 +463,7 @@ bool CommandQueue::pop(BusPacket **busPacket) {
 								sendingPRE = true;
 								rowAccessCounters[nextRankPRE][nextBankPRE] = 0;
 								*busPacket = new BusPacket(PRECHARGE, 0, 0, 0,
-										nextRankPRE, nextBankPRE, 0,
+										nextRankPRE, nextBankPRE, NULL,
 										dramsim_log);
 								break;
 							}

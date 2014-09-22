@@ -40,13 +40,13 @@ using namespace std;
 
 namespace DRAMSim {
 
-Transaction::Transaction(TransactionType transType, uint64_t addr, void *dat,
+Transaction::Transaction(TransactionType transType, uint64_t addr,
 		uint64_t rip) :
-		transactionType(transType), address(addr), data(dat), RIP(rip) {
+		transactionType(transType), address(addr),  RIP(rip) {
 }
 
 Transaction::Transaction(const Transaction &t) :
-		transactionType(t.transactionType), address(t.address), data(NULL), timeAdded(
+		transactionType(t.transactionType), address(t.address), timeAdded(
 				t.timeAdded), timeReturned(t.timeReturned), RIP(t.RIP) {
 #ifndef NO_STORAGE
 	ERROR(
@@ -59,11 +59,11 @@ ostream &operator<<(ostream &os, const Transaction &t) {
 	if (t.transactionType == DATA_READ) {
 		os << "T [Read] [0x" << hex << t.address << "]" << dec << endl;
 	} else if (t.transactionType == DATA_WRITE) {
-		os << "T [Write] [0x" << hex << t.address << "] [" << dec << t.data
-				<< "]" << endl;
+		os << "T [Write] [0x" << hex << t.address << "] [" << t.get_newdata()
+				<< "]" << dec <<endl;
 	} else if (t.transactionType == RETURN_DATA) {
-		os << "T [Data] [0x" << hex << t.address << "] [" << dec << t.data
-				<< "]" << endl;
+		os << "T [Data] [0x" << hex << t.address << "] [" << t.get_newdata()
+				<< "]" << dec <<endl;
 	}
 	return os;
 }

@@ -60,9 +60,12 @@ public:
 	void update();
 	bool addTransaction(Transaction *trans);
 	bool addTransaction(bool isWrite, uint64_t addr, uint64_t rip=0);
+	void receiveData(uint64_t oldata, uint64_t newdata);
 //	bool addTransaction(bool isWrite, uint64_t addr, void *data, size_t dataNumBytes);
 	void printStats(bool finalStats);
 	bool WillAcceptTransaction();
+
+
 	void RegisterCallbacks(
 	    Callback_t *readDone,
 	    Callback_t *writeDone,
@@ -82,7 +85,10 @@ public:
 	unsigned systemID;
 
 private:
+	uint64_t oldData_;
+	uint64_t newData_;
 	CSVWriter &csvOut;
+
 };
 }
 

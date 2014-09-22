@@ -57,6 +57,8 @@ MemorySystem::MemorySystem(unsigned id, unsigned int megsOfMemory, CSVWriter &cs
 		ReturnReadData(NULL),
 		WriteDataDone(NULL),
 		systemID(id),
+		oldData_(0),
+		newData_(0),
 		csvOut(csvOut_)
 {
 	currentClockCycle = 0;
@@ -187,7 +189,12 @@ bool MemorySystem::WillAcceptTransaction()
 bool MemorySystem::addTransaction(bool isWrite, uint64_t addr, uint64_t rip)
 {
 	TransactionType type = isWrite ? DATA_WRITE : DATA_READ;
-	Transaction *trans = new Transaction(type,addr,NULL,rip);
+	Transaction *trans = new Transaction(type,addr,rip);
+	if(isWrite){
+		trans->set_data(oldData_,newData_);
+	}else{
+		trans->set_data(0,0);
+	}
 	// push_back in memoryController will make a copy of this during
 	// addTransaction so it's kosher for the reference to be local 
 
@@ -200,6 +207,10 @@ bool MemorySystem::addTransaction(bool isWrite, uint64_t addr, uint64_t rip)
 		pendingTransactions.push_back(trans);
 		return true;
 	}
+}
+void MemorySystem::receiveData(uint64_t oldata, uint64_t newdata){
+	oldData_=oldata;
+	newData_=newdata;
 }
 
 bool MemorySystem::addTransaction(Transaction *trans)

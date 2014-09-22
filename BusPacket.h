@@ -65,17 +65,17 @@ public:
 	unsigned bank;
 	unsigned rank;
 	uint64_t physicalAddress;
-	void *data;
-//	DataPacket *data;
+	DataPacket *dataPacket;
 	uint64_t RIP;
 
 	//Functions
-	BusPacket(BusPacketType packtype, uint64_t physicalAddr, unsigned col, unsigned rw, unsigned r, unsigned b, void *dat, ostream &dramsim_log_,uint64_t rip=0);
+	BusPacket(BusPacketType packtype, uint64_t physicalAddr, unsigned col, unsigned rw, unsigned r, unsigned b, DataPacket *dataPacket, ostream &dramsim_log_,uint64_t rip=0);
 
 	void print();
 	void print(uint64_t currentClockCycle, bool dataStart);
-	void printData() const;
-//	static void printData(const void *data);
+//	void printData() const;
+	void printData(const DataPacket *data);
+	~BusPacket();
 
 };
 }

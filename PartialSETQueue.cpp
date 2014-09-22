@@ -125,13 +125,13 @@ bool PartialSETQueue::enqueue(BusPacket *bspacket) {
 				new Entry(
 						new BusPacket(ACTIVATE, bspacket->physicalAddress,
 								bspacket->column, bspacket->row, bspacket->rank,
-								bspacket->bank, bspacket->data, dramsim_log,
+								bspacket->bank, bspacket->dataPacket, dramsim_log,
 								bspacket->RIP)));
 		PSqueues[rank][bank].push_back(
 				new Entry(
 						new BusPacket(WRITE, bspacket->physicalAddress,
 								bspacket->column, bspacket->row, bspacket->rank,
-								bspacket->bank, bspacket->data, dramsim_log,
+								bspacket->bank, bspacket->dataPacket, dramsim_log,
 								bspacket->RIP)));
 //		PRINT(
 //				"clock "<<currentClockCycle<<" en psqueue 0x"<<hex<<bspacket->physicalAddress<<dec<<" r["<<rank<<"] b["<<bank<<"] ");
@@ -250,7 +250,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 													psqueue[i]->busPacket->column,
 													psqueue[i]->busPacket->row,
 													nextrank, nextbank,
-													psqueue[i]->busPacket->data,
+													psqueue[i]->busPacket->dataPacket,
 													dramsim_log,
 													psqueue[i]->busPacket->RIP);
 									issuable = true;
@@ -283,7 +283,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 														psqueue[i + 1]->busPacket->row,
 														psqueue[i + 1]->busPacket->rank,
 														psqueue[i + 1]->busPacket->bank,
-														psqueue[i + 1]->busPacket->data,
+														psqueue[i + 1]->busPacket->dataPacket,
 														dramsim_log,
 														psqueue[i + 1]->busPacket->RIP);
 										delete (psqueue[i]);
@@ -300,7 +300,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 														psqueue[i]->busPacket->row,
 														psqueue[i]->busPacket->rank,
 														psqueue[i]->busPacket->bank,
-														psqueue[i]->busPacket->data,
+														psqueue[i]->busPacket->dataPacket,
 														dramsim_log,
 														psqueue[i]->busPacket->RIP);
 										delete psqueue[i];
@@ -363,7 +363,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 									&& (currentClockCycle
 											>= bankStates[nextrank][nextbank].nextPrecharge)) {
 								*busPacket = new BusPacket(PRECHARGE, 0, 0, 0,
-										nextrank, nextbank, 0, dramsim_log);
+										nextrank, nextbank,NULL, dramsim_log);
 //								PRINT(
 //										"clock "<<currentClockCycle<<" due full psQ pre r["<<nextrank<<"] b["<<nextbank<<"]");
 								issuable = true;
@@ -403,7 +403,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 										psqueue[i]->busPacket->row,
 										psqueue[i]->busPacket->rank,
 										psqueue[i]->busPacket->bank,
-										psqueue[i]->busPacket->data,
+										psqueue[i]->busPacket->dataPacket,
 										dramsim_log,
 										psqueue[i]->busPacket->RIP);
 								delete (psqueue[i]);
@@ -444,7 +444,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 													psqueue[i + 1]->busPacket->row,
 													psqueue[i + 1]->busPacket->rank,
 													psqueue[i + 1]->busPacket->bank,
-													psqueue[i + 1]->busPacket->data,
+													psqueue[i + 1]->busPacket->dataPacket,
 													dramsim_log,
 													psqueue[i + 1]->busPacket->RIP);
 									delete (psqueue[i]);
@@ -460,7 +460,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 													psqueue[i]->busPacket->row,
 													psqueue[i]->busPacket->rank,
 													psqueue[i]->busPacket->bank,
-													psqueue[i]->busPacket->data,
+													psqueue[i]->busPacket->dataPacket,
 													dramsim_log,
 													psqueue[i]->busPacket->RIP);
 									delete (psqueue[i]);
@@ -474,7 +474,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 														(*busPacket)->row,
 														(*busPacket)->rank,
 														(*busPacket)->bank,
-														(*busPacket)->data,
+														(*busPacket)->dataPacket,
 														dramsim_log,
 														(*busPacket)->RIP)));
 								psqueue.push_back(
@@ -485,7 +485,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 														(*busPacket)->row,
 														(*busPacket)->rank,
 														(*busPacket)->bank,
-														(*busPacket)->data,
+														(*busPacket)->dataPacket,
 														dramsim_log,
 														(*busPacket)->RIP)));
 //								PRINTN("due retention psQ act ");
@@ -508,7 +508,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 						if (currentClockCycle
 								>= bankStates[nextrank][nextbank].nextPrecharge) {
 							*busPacket = new BusPacket(PRECHARGE, 0, 0, 0,
-									nextrank, nextbank, 0, dramsim_log);
+									nextrank, nextbank, NULL, dramsim_log);
 //							PRINT(
 //									"due retention psQ pre r["<<nextrank<<"] b["<<nextbank<<"]");
 							vector<BusPacket *> &writequeue =
@@ -534,7 +534,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 														readqueue[r]->row,
 														readqueue[r]->rank,
 														readqueue[r]->bank,
-														readqueue[r]->data,
+														readqueue[r]->dataPacket,
 														dramsim_log,
 														readqueue[r]->RIP));
 									}
@@ -559,7 +559,7 @@ bool PartialSETQueue::evict(unsigned &nextrank, unsigned &nextbank,
 															writequeue[w]->row,
 															writequeue[w]->rank,
 															writequeue[w]->bank,
-															writequeue[w]->data,
+															writequeue[w]->dataPacket,
 															dramsim_log,
 															writequeue[w]->RIP));
 										}

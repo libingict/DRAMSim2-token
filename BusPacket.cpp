@@ -46,7 +46,7 @@ using namespace DRAMSim;
 using namespace std;
 
 BusPacket::BusPacket(BusPacketType packtype, uint64_t physicalAddr, 
-		unsigned col, unsigned rw, unsigned r, unsigned b, void *dat,
+		unsigned col, unsigned rw, unsigned r, unsigned b, DataPacket *data,
 		ostream &dramsim_log_,uint64_t rip) :
 	dramsim_log(dramsim_log_),
 	busPacketType(packtype),
@@ -55,10 +55,21 @@ BusPacket::BusPacket(BusPacketType packtype, uint64_t physicalAddr,
 	bank(b),
 	rank(r),
 	physicalAddress(physicalAddr),
-	data(dat),
-	RIP(rip)
-{}
-
+	RIP(rip){
+	if(data!=NULL &&( busPacketType == WRITE||busPacketType == ACTIVATE))
+	{
+		dataPacket=new DataPacket(data->getData(),data->getoldData());
+	}
+	else{
+		dataPacket=new DataPacket(0,0);
+	}
+}
+BusPacket::~BusPacket(){
+	if (dataPacket!=NULL)
+			{
+				free(dataPacket);
+			}
+		}
 void BusPacket::print(uint64_t currentClockCycle, bool dataStart)
 {
 	if (this == NULL)
@@ -77,7 +88,7 @@ void BusPacket::print(uint64_t currentClockCycle, bool dataStart)
 			cmd_verify_out << currentClockCycle << ": read ("<<rank<<","<<bank<<","<<column<<",1);"<<endl;
 			break;
 		case WRITE:
-			cmd_verify_out << currentClockCycle << ": write ("<<rank<<","<<bank<<","<<column<<",0 , 0, 'h0);"<<endl;
+			cmd_verify_out << currentClockCycle << ": write ("<<rank<<","<<bank<<","<<column<<",0 , 0, 'h0);"<<dataPacket<<endl;
 			break;
 		case WRITE_P:
 			cmd_verify_out << currentClockCycle << ": write ("<<rank<<","<<bank<<","<<column<<",1, 0, 'h0);"<<endl;
@@ -111,19 +122,19 @@ void BusPacket::print()
 		switch (busPacketType)
 		{
 		case READ:
-			PRINT("BP [READ] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
+			PRINT("BP [READ] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"] data[0x"<<*dataPacket<<dec<<"]");
 			break;
 		case READ_P:
-			PRINT("BP [READ_P] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
+			PRINT("BP [READ_P] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"] data[0x"<<*dataPacket<<dec<<"]");
 			break;
 		case WRITE:
-			PRINT("BP [WRITE] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
+			PRINT("BP [WRITE] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<"] data[0x"<<*dataPacket<<dec<<"]");
 			break;
 		case WRITE_P:
 			PRINT("BP [WRITE_P] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
 			break;
 		case ACTIVATE:
-			PRINT("BP [ACT] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
+			PRINT("BP [ACT] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<"] data[0x"<<*dataPacket<<dec<<"]");
 			break;
 		case PRECHARGE:
 			PRINT("BP [PRE] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
@@ -132,9 +143,8 @@ void BusPacket::print()
 			PRINT("BP [REF] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"]");
 			break;
 		case DATA:
-			PRINTN("BP [DATA] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] data["<<data<<"]=");
-			printData();
-//			BusPacket::printData(data);
+			PRINTN("BP [DATA] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] data[=");
+			printData(dataPacket);
 			PRINT("");
 			break;
 		default:
@@ -144,18 +154,12 @@ void BusPacket::print()
 	}
 }
 
-void BusPacket::printData() const
-//void BusPacket::printData(const void *data)
+void BusPacket::printData(const DataPacket *data)
 {
 	if (data == NULL)
 	{
 		PRINTN("NO DATA");
 		return;
 	}
-	PRINTN("'" << hex);
-	for (int i=0; i < 4; i++)
-	{
-		PRINTN(((uint64_t *)data)[i]);
-	}
-	PRINTN("'" << dec);
+	PRINTN(data);
 }
