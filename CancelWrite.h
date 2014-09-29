@@ -13,6 +13,7 @@
 #include "BusPacket.h"
 #include "BankState.h"
 #include "Rank.h"
+#include "TokenController.h"
 
 namespace DRAMSim {
 
@@ -37,15 +38,11 @@ public:
 	void update();
 	bool isEmpty(unsigned rank);
 //	void getToken(BusPacket *buspacket);
-	void releaseToken();
-	bool powerAllowable(BusPacket *buspacket);
 	vector<vector<BusPacket*> > ongoingWrite;
 //	vector<vector<BusPacket*> > canceledWrite;
 	vector<vector<bool> > writepriority;
 	vector<vector<bool> > writecancel;
-//Power Token
-	vector <vector<unsigned> > tokenpool;
-	vector <vector<unsigned> > tokencountdown;
+	TokenController* tokenRank;
 
 	unsigned nextRank;
 	unsigned nextBank;
@@ -58,9 +55,6 @@ private:
 	unsigned writeQueueDepth;
 //	vector<vector<uint64_t> > readcout;
 	ostream &dramsim_log;
-	unsigned maxToken; //Per chip per bank token
-	vector<vector<unsigned> > setbit;
-	vector<vector<unsigned> > resetbit;
 
 };
 }

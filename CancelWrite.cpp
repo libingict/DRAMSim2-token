@@ -13,41 +13,30 @@ using namespace DRAMSim;
 
 CancelWrite::CancelWrite(vector<vector<BankState> > &states,
 		ostream &dramsim_log_, vector<Rank *> *&ranks_) :
-		 bankStates(states), writeQueue(states,
-				dramsim_log_), readQueue(states, dramsim_log_), ranks(ranks_), writeQueueDepth(
-				CMD_QUEUE_DEPTH), nextRank(0), nextBank(0), nextRankPRE(0), nextBankPRE(
-				0), dramsim_log(dramsim_log_),maxToken(DEVICE_WIDTH*2) {
+		bankStates(states), writeQueue(states, dramsim_log_), readQueue(states,
+				dramsim_log_), ranks(ranks_), writeQueueDepth(CMD_QUEUE_DEPTH), nextRank(
+				0), nextBank(0), nextRankPRE(0), nextBankPRE(0), dramsim_log(
+				dramsim_log_) {
 	currentClockCycle = 0;
 	writecancel = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
-//	readrequest = vector < vector<uint64_t>
-//			> (NUM_RANKS, vector<uint64_t>(NUM_BANKS, 0));
 	coutcanceledwrite = vector < vector<uint64_t>
 			> (NUM_RANKS, vector < uint64_t > (NUM_BANKS, 0)); //record the Count of Canceled Write
 	ongoingWrite = vector < vector<BusPacket *>
 			> (NUM_RANKS, vector<BusPacket *>(NUM_BANKS, NULL));
 	writepriority = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
-	////64bit data, from low to high mapped to chip 0-7
-	tokenpool = vector < vector<unsigned>
-			> (NUM_DEVICES, vector<unsigned>(NUM_BANKS, maxToken));
-	tokencountdown = vector < vector<unsigned>
-			> (NUM_DEVICES, vector<unsigned>(NUM_BANKS, 0));
-	setbit = vector < vector<unsigned>
-			> (NUM_DEVICES, vector<unsigned>(NUM_BANKS, 0));
-	resetbit = vector < vector<unsigned>
-			> (NUM_DEVICES, vector<unsigned>(NUM_BANKS, 0));
+	tokenRank = new TokenController(dramsim_log_);
+	//64bit data, from low to high mapped to chip 0-7
+
 }
 CancelWrite::~CancelWrite() {
 	for (size_t r = 0; r < NUM_RANKS; r++) {
 		ongoingWrite[r].clear();
 		writecancel[r].clear();
 		writepriority[r].clear();
-		tokenpool[r].clear();
-		tokencountdown[r].clear();
-		setbit[r].clear();
-		resetbit[r].clear();
 	}
+	delete tokenRank;
 }
 bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 		bool &found) {
@@ -63,9 +52,10 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 						&& i < wrqueue.size() - 1
 						&& wrqueue[i + 1]->physicalAddress
 								== packet->physicalAddress) {
-					transaction->set_data(wrqueue[i + 1]->dataPacket->getData(),0);
+					transaction->set_data(wrqueue[i + 1]->dataPacket->getData(),
+							0);
 				} else {
-					transaction->set_data(packet->dataPacket->getData(),0);
+					transaction->set_data(packet->dataPacket->getData(), 0);
 				}
 				found = true;
 				break;
@@ -101,12 +91,16 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 						&& i < queue.size() - 1
 						&& queue[i + 1]->physicalAddress
 								== packet->physicalAddress) { // the write request is paired
-					queue[i]->dataPacket->setData(transaction->get_newdata(),transaction->get_oldata());
-					queue[i + 1]->dataPacket->setData(transaction->get_newdata(),transaction->get_oldata());
+					queue[i]->dataPacket->setData(transaction->get_newdata(),
+							transaction->get_oldata());
+					queue[i + 1]->dataPacket->setData(
+							transaction->get_newdata(),
+							transaction->get_oldata());
 					// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
 				} else {
 					//the activated has popped.
-					queue[i]->dataPacket->setData(transaction->get_newdata(),transaction->get_oldata());
+					queue[i]->dataPacket->setData(transaction->get_newdata(),
+							transaction->get_oldata());
 				}
 				break;
 			}
@@ -125,7 +119,7 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 			writeQueue.enqueue(
 					new BusPacket(WRITE, buspacket->physicalAddress,
 							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->dataPacket,dramsim_log,
+							buspacket->bank, buspacket->dataPacket, dramsim_log,
 							buspacket->RIP));
 			return true;
 		} else {
@@ -142,33 +136,35 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 	for (unsigned i = 0; i < queue.size(); i++) {
 		BusPacket *request = queue[i];
 		if (requestQueue.isIssuable(request)) { //check for the timing constraint
-			if (request->busPacketType == WRITE ) {
-				if(!powerAllowable(request)){
-				return false;
+			if (request->busPacketType == WRITE) {
+				if (!tokenRank->powerAllowable(request)) {
+					return false;
 				}
 			}
-				busPacket = new BusPacket(request->busPacketType,
-						request->physicalAddress, request->column, request->row,
-						request->rank, request->bank, request->dataPacket,
-						dramsim_log, request->RIP);
-				/*
-				 if the bus packet before is an activate, that is the act that was
-				 paired with the column access we are removing, so we have to remove
-				 that activate as well (check i>0 because if i==0 then there's nothing before it)
-				 */
-				if (i > 0 && queue[i - 1]->busPacketType == ACTIVATE) {
-					// i is being returned, but i-1 is being thrown away, so must delete it here
-					delete (queue[i - 1]);
-					delete (queue[i]);
-					// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
-					queue.erase(queue.begin() + i - 1, queue.begin() + i + 1);
-				} else // there's no activate before this packet
-				{
-					//or just remove the one bus packet
-					//if write then check the power token per chip. until writes for all chips are done
-					queue.erase(queue.begin() + i);
-				}
-				issuable = true;
+
+			busPacket = new BusPacket(request->busPacketType,
+					request->physicalAddress, request->column, request->row,
+					request->rank, request->bank, request->dataPacket,
+					dramsim_log, request->RIP);
+
+			/*
+			 if the bus packet before is an activate, that is the act that was
+			 paired with the column access we are removing, so we have to remove
+			 that activate as well (check i>0 because if i==0 then there's nothing before it)
+			 */
+			if (i > 0 && queue[i - 1]->busPacketType == ACTIVATE) {
+				// i is being returned, but i-1 is being thrown away, so must delete it here
+				delete (queue[i - 1]);
+				delete (queue[i]);
+				// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
+				queue.erase(queue.begin() + i - 1, queue.begin() + i + 1);
+			} else // there's no activate before this packet
+			{
+				//or just remove the one bus packet
+				//if write then check the power token per chip. until writes for all chips are done
+				queue.erase(queue.begin() + i);
+			}
+			issuable = true;
 			break;
 		}
 	}
@@ -194,7 +190,7 @@ void CancelWrite::issueWC(unsigned r, unsigned b) { //if there is waiting read r
 					unsigned oldnextRead = bankStates[r][b].nextRead;
 					unsigned delta = oldnextRead - currentClockCycle;
 					if (ongoingWrite[r][b] != NULL
-							&& delta > (0.75 * WRITE_TO_READ_DELAY_B)) {
+							&& (delta > (0.75 * WRITE_TO_READ_DELAY_B))) {
 						//modify all timing for all Bank
 						bankStates[r][b].nextPrecharge -= delta;
 						bankStates[r][b].nextWrite -= delta;
@@ -225,7 +221,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 			vector<BusPacket *> &readqueue = readQueue.getCommandQueue(nextRank,
 					nextBank);
 			if (!(writequeue.empty() && readqueue.empty())) {
-				if (!writepriority[nextRank][nextBank]) {	//then read priority
+				if (!writepriority[nextRank][nextBank]) { //then read priority
 					if (writequeue.size() >= CMD_QUEUE_DEPTH) {
 						writepriority[nextRank][nextBank] = true;
 					}
@@ -238,9 +234,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 							issueWrite = issueRequest(nextRank, nextBank,
 									*busPacket, writeQueue);
 						}
-					}
-					else {
-						if (!readqueue.empty() && writequeue.size() <= 0) {	//prioritized the ReadRequest and Cancel the on-going write
+					} else {
+						if (!readqueue.empty() && writequeue.size() <= 0) { //prioritized the ReadRequest and Cancel the on-going write
 							writepriority[nextRank][nextBank] = false;
 							issueWC(nextRank, nextBank); //change the timing of Rank and Bank to issue the ReadRequest
 							coutcanceledwrite[nextRank][nextBank]++; //record the Count of Canceled Write
@@ -275,8 +270,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 													ongoingWrite[nextRank][nextBank]->row,
 													ongoingWrite[nextRank][nextBank]->rank,
 													ongoingWrite[nextRank][nextBank]->bank,
-													NULL,
-													dramsim_log,
+													NULL, dramsim_log,
 													ongoingWrite[nextRank][nextBank]->RIP));
 									delete ongoingWrite[nextRank][nextBank];
 									ongoingWrite[nextRank][nextBank] = NULL;
@@ -349,8 +343,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 															readqueue[i]->row,
 															readqueue[i]->rank,
 															readqueue[i]->bank,
-															NULL,
-															dramsim_log,
+															NULL, dramsim_log,
 															readqueue[i]->RIP);
 											readqueue.insert(it, bpacket);
 //										PRINT(
@@ -413,8 +406,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 											>= bankStates[nextRankPRE][nextBankPRE].nextPrecharge) {
 										sendingPRE = true;
 										*busPacket = new BusPacket(PRECHARGE, 0,
-												0, 0, nextRankPRE, nextBankPRE,NULL,
-												dramsim_log);
+												0, 0, nextRankPRE, nextBankPRE,
+												NULL, dramsim_log);
 //									PRINTN(
 //											"readP, read not empty, not found in read, set PRE r["<<nextRankPRE<<"]b["<<nextBankPRE<<"] ");
 										return true;
@@ -425,53 +418,55 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 										if (writequeue[i]->bank == nextBankPRE
 												&& writequeue[i]->row
 														== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
-											found = true;   //then not issue PRE
+											found = true; //then not issue PRE
 											if (currentClockCycle
 													>= bankStates[nextRankPRE][nextBankPRE].nextWrite) {
 												/*
 												 if the bus packet i is an activate, and also the next packet i+1 is write,
 												 then we pop i and i+1, return i+1 packet
 												 */
-													if (powerAllowable(
-															writequeue[i])) {
-												*busPacket =
-														new BusPacket(WRITE,
-																writequeue[i]->physicalAddress,
-																writequeue[i]->column,
-																writequeue[i]->row,
-																writequeue[i]->rank,
-																writequeue[i]->bank,
-																writequeue[i]->dataPacket,
-																dramsim_log,
-																writequeue[i]->RIP);
-												if (writequeue[i]->busPacketType
-														== ACTIVATE
-														&& writequeue[i + 1]->row
-																== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
-													// i is being returned, but i-1 is being thrown away, so must delete it here
-													delete (writequeue[i + 1]);
-													delete (writequeue[i]);
-													// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
-													writequeue.erase(
-															writequeue.begin()
-																	+ i,
-															writequeue.begin()
-																	+ i + 2);
-												} else {
-													// there's no activate before this packet
-													//or just remove the one bus packet
-													writequeue.erase(
-															writequeue.begin()
-																	+ i);
-												}
-												return true;
-												}
+												if (tokenRank->powerAllowable(
+														writequeue[i])) {
+													*busPacket =
+															new BusPacket(WRITE,
+																	writequeue[i]->physicalAddress,
+																	writequeue[i]->column,
+																	writequeue[i]->row,
+																	writequeue[i]->rank,
+																	writequeue[i]->bank,
+																	writequeue[i]->dataPacket,
+																	dramsim_log,
+																	writequeue[i]->RIP);
+													if (writequeue[i]->busPacketType
+															== ACTIVATE
+															&& writequeue[i + 1]->row
+																	== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
+														// i is being returned, but i-1 is being thrown away, so must delete it here
+														delete (writequeue[i + 1]);
+														delete (writequeue[i]);
+														// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
+														writequeue.erase(
+																writequeue.begin()
+																		+ i,
+																writequeue.begin()
+																		+ i
+																		+ 2);
+													} else {
+														// there's no activate before this packet
+														//or just remove the one bus packet
+														writequeue.erase(
+																writequeue.begin()
+																		+ i);
+													}
+													return true;
+
 //												PRINT(
 //														"clock "<<currentClockCycle<<" readP, read empty, emit write 0x" << hex << (*busPacket)->physicalAddress << dec<<" r["<<nextRankPRE<<"]b["<<nextBankPRE<<"] "<<" ongoing NULL");
 //																								delete ongoingWrite[nextRankPRE][nextBankPRE];
 //												 ongoingWrite[nextRankPRE][nextBankPRE] =
 //												 NULL;
 
+												}
 											}
 											break;
 										}
@@ -510,106 +505,15 @@ bool CancelWrite::isEmpty(unsigned r) {
 	} else
 		return false;
 }
-/*void CancelWrite::getToken(BusPacket *buspacket) {
-	unsigned b = buspacket->bank;
-//	srand((unsigned) time(NULL));
-	//64bit data, from low to high mapped to chip 0-7
-	unsigned demandedtokenperChip;
-	 uint64_t oldata, newdata;
-	 uint64_t writtendata, tmp;
-	 newdata = buspacket->dataPacket->getnewData();
-	 oldata = buspacket->dataPacket->getoldData();
-	 writtendata = olddata ^ newdata;
-	 tmp = writtendata;
-//actually this is different for each chip.
-	for (size_t i = 0; i < NUM_DEVICES; i++) {
-		setbit = 0;
-		resetbit = 0;
-		resetbit = DEVICE_WIDTH - setbit;
-		for (size_t d = 0; d < DEVICE_WIDTH; d++) {
-		 tmp = tmp >> d;
-		 if (writtendata & 1)
-		 setbit++;
-		 else
-		 resetbit++;
-		 }
-		double up = (double) setbit[i][b] / 2;
-		demandedtokenperChip = ceil(up) + resetbit[i][b];
-		tokenpool[i][b] = tokenpool[i][b] - demandedtokenperChip;
-		tokencountdown[i][b] = WRITE_TO_PRE_DELAY;
-	}
-}*/
-void CancelWrite::releaseToken() {
-	for (size_t r = 0; r < NUM_RANKS; r++) {
-		for (size_t b = 0; b < NUM_BANKS; b++) {
-		for (size_t i = 0; i < NUM_DEVICES; i++) {
-				if (tokencountdown[i][b] > 0) {
-					tokencountdown[i][b]--;
-				} else {
-					if (((setbit[i][b] != 0) || (resetbit[i][b] != 0))
-							&& (tokenpool[i][b] < maxToken)) {
-//						PRINT(
-//								" Bank "<<b<<" Chip "<< i<<" setbit "<<setbit[i][b]<<" resetbit "<<resetbit[i][b]<<" tokenpool "<<tokenpool[i][b]);
-						tokenpool[i][b] = maxToken;
-					}
-
-				}
-			}
-		}
-	}
-}
-bool CancelWrite::powerAllowable(BusPacket *buspacket) {
-	unsigned b = buspacket->bank;
-	//64bit data, from low to high mapped to chip 0-7
-	unsigned demandedtokenperChip;
-	 uint64_t oldata, newdata;
-	 uint64_t writtendata, tmp;
-//	 PRINT("dataPacket is :"<< buspacket->dataPacket);
-	 newdata = buspacket->dataPacket->getData();
-	 oldata = buspacket->dataPacket->getoldData();
-	 PRINT("newdata is :"<<hex<< newdata<<" oldata is "<< oldata<<dec);
-//	 buspacket->print();
-	 writtendata = oldata ^ newdata;
-	 tmp = writtendata;
-//actually this is different for each chip.
-	for (unsigned i = 0; i < NUM_DEVICES; i++) {
-		setbit[i][b]=0;
-		resetbit[i][b]=0;
-		if (tmp & 1){
-			if(newdata &1)
-				setbit[i][b]++;
-			else
-				resetbit[i][b]++;
-		}
-		for (size_t d = 0; d < DEVICE_WIDTH-1; d++) {
-			tmp = tmp >> 1;
-			newdata= newdata >> 1;
-			if (tmp & 1){
-				if(newdata &1)
-					setbit[i][b]++;
-				else
-					resetbit[i][b]++;
-				 }
-		}
-//		double up = (double) setbit[i][b] / 2;
-//		demandedtokenperChip = ceil(up) + resetbit[i][b];
-		demandedtokenperChip = setbit[i][b] + resetbit[i][b]*2;
-//		PRINT(" Bank "<<b<<" Chip "<< i<<" setbit "<<setbit[i][b]<<" resetbit "<<resetbit[i][b]<<" tokenpool "<<tokenpool[i][b]<<" demandedtoken "<<demandedtokenperChip);
-		if (tokenpool[i][b] < demandedtokenperChip) {
-			return false;
-		} else {
-			tokenpool[i][b] = tokenpool[i][b] - demandedtokenperChip;
-			tokencountdown[i][b] = WRITE_TO_PRE_DELAY;
-		}
-	}
-	return true;
-}
 
 void CancelWrite::update() {
 	writeQueue.step();
 	readQueue.step();
+	if (tokenRank!= NULL) {
+		tokenRank->step();
+		tokenRank->update();
+	}
 	step();
-	releaseToken();
 }
 /*void CancelWrite::print(){
 

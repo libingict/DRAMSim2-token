@@ -21,10 +21,22 @@ using namespace std;
 namespace DRAMSim {
 class PowerToken: public SimulatorObject {
 public:
-	unsigned setbitPower;
-	unsigned resetbitPower;
-	unsigned availableBit;
-	static unsigned maxPower;
+	uint64_t startCycle;
+		unsigned iterNumber;
+		uint64_t demandedToken;
+		vector<unsigned> setBits;
+		vector<unsigned> resetBits;
+		void set_RankBank(unsigned rankid_,unsigned bankid_){
+			rank=rankid_;
+			bank=bankid_;
+		}
+		uint64_t getToken(BusPacket *buspacket);
+		uint64_t releaseToken(BusPacket *buspacket);
+		virtual ~PowerToken();
+	private:
+		unsigned rank;
+		unsigned bank;
+	    static unsigned maxPower;
 
 	vector<vector<unsigned> > powerPoll;
 

@@ -10,93 +10,161 @@
 #include <time.h>
 #include <math.h>
 #define BANKLEVEL(Chip,Offset) (Chip*DEVICE_WIDTH/2)+Offset
+#define REQUESTID(rank,bank) (rank*NUM_BANKS)+bank
+extern double setEnergyperCell; //pj
+extern double resetEnergyperCell; //pj
 using namespace DRAMSim;
-TokenController::TokenController(unsigned r, ostream &dramsim_log_) :
-		rank(r),writeLatency(0), dramsim_log(dramsim_log_) {
-	startCycle = vector<unsigned>(NUM_BANKS, 0);
-	valid = vector<bool>(NUM_BANKS, false);
-	resetCounts = vector < vector<unsigned>
-			> (NUM_BANKS, vector<unsigned>(NUM_DEVICES, 0));
-	setCounts = vector < vector<unsigned>
-			> (NUM_BANKS, vector<unsigned>(NUM_DEVICES, 0));
-	partresetCounts = vector < vector<unsigned>
-			> (NUM_BANKS, vector<unsigned>(NUM_DEVICES, 0));
-	partsetCounts = vector < vector<unsigned>
-			> (NUM_BANKS, vector<unsigned>(NUM_DEVICES, 0));
+TokenController::TokenController(ostream &dramsim_log_) :
+		dramsim_log(dramsim_log_) {
+	startCycle = vector<unsigned>(REQUESTID(NUM_RANKS,NUM_BANKS), 0);
+	valid = vector<bool>(REQUESTID(NUM_RANKS,NUM_BANKS), false);
+	requestToken = vector < vector<uint64_t>
+			> (REQUESTID(NUM_RANKS,NUM_BANKS), vector < uint64_t
+					> (NUM_DEVICES, 0));
+	resetCounts =
+			vector < vector<unsigned>
+					> (REQUESTID(NUM_RANKS,NUM_BANKS), vector<unsigned>(
+							NUM_DEVICES, 0));
+	setCounts =
+			vector < vector<unsigned>
+					> (REQUESTID(NUM_RANKS,NUM_BANKS), vector<unsigned>(
+							NUM_DEVICES, 0));
+	partresetCounts =
+			vector < vector<unsigned>
+					> (REQUESTID(NUM_RANKS,NUM_BANKS), vector<unsigned>(
+							NUM_DEVICES, 0));
+	partsetCounts =
+			vector < vector<unsigned>
+					> (REQUESTID(NUM_RANKS,NUM_BANKS), vector<unsigned>(
+							NUM_DEVICES, 0));
 	tokenPool = vector < uint64_t > (NUM_DEVICES, 80);
-//	dataCounts=vector<DataLevel>(DataLevel,0);
-	demandedToken = vector < uint64_t > (NUM_DEVICES, 0); //per cell 2-MLC
-	iterNumber = vector<unsigned>(NUM_DEVICES * DEVICE_WIDTH / 2, 0); //per cell 2-MLC
+	iterNumber = vector < vector<unsigned>
+			> (REQUESTID(NUM_RANKS,NUM_BANKS), vector<unsigned>(
+					NUM_DEVICES * DEVICE_WIDTH / 2, 0)); //per cell 2-MLC
 	currentClockCycle = 0;
 }
 TokenController::~TokenController() {
-
+	for (size_t r = 0; r < NUM_RANKS; r++) {
+		for (size_t b = 0; b < NUM_BANKS; b++) {
+			resetCounts[REQUESTID(r,b)].clear();
+			partresetCounts[REQUESTID(r,b)].clear();
+			partsetCounts[REQUESTID(r,b)].clear();
+			setCounts[REQUESTID(r,b)].clear();
+			requestToken[REQUESTID(r,b)].clear();
+		}
+	}
 }
+bool TokenController::hasSame(unsigned rank, unsigned bank) {
+	if (valid[REQUESTID(rank, bank)] == true) {
+		return true;
+	} else {
+		return false;
+	}
+}
+
 void TokenController::initial(BusPacket *buspacket) {
+	unsigned r = buspacket->rank;
 	unsigned b = buspacket->bank;
-	if(valid[b] == true){
+	if (hasSame(r, b) == true) {
 		return;
 	}
-	valid[b] = true;
+	valid[REQUESTID(r,b)] = true;
 	vector<unsigned> latency = vector<unsigned>(NUM_DEVICES, 0);
 	//64bit data, from low to high mapped to chip 0-7
 	uint64_t oldata, newdata;
 	uint64_t writtendata, tmp;
-	//	 PRINT("dataPacket is :"<< buspacket->dataPacket);
 	newdata = buspacket->dataPacket->getData();
 	oldata = buspacket->dataPacket->getoldData();
-	PRINT("newdata is :"<<hex<< newdata<<" oldata is "<< oldata<<dec);
-	//	 buspacket->print();
+//	PRINT("newdata is :"<<hex<< newdata<<" oldata is "<< oldata<<dec);
 	writtendata = oldata ^ newdata; // same is zero, different is one
 	tmp = writtendata;
 	//actually this is different for each chip.
 	for (unsigned i = 0; i < NUM_DEVICES; i++) {
 		if (tmp == 0) {
-			demandedToken[i] = 0;
+			resetCounts[REQUESTID(r,b)][i] = 0;
+			partresetCounts[REQUESTID(r,b)][i] = 0;
+			partsetCounts[REQUESTID(r,b)][i] = 0;
+			setCounts[REQUESTID(r,b)][i] = 0;
+			requestToken[REQUESTID(r,b)][i] = 0;
 			continue;
 		}
-		for (unsigned j = 0; j < DEVICE_WIDTH / 2; j = j + 1) {
-			if (!(tmp & 0x11)) {
+		for (unsigned j = 0; j < DEVICE_WIDTH / 2; j = j + 1) {  //Per chip
+			if (tmp & 0x3 != 0) {
 //				demandedToken[i];
 //				calculate the demandedToken
-				switch (newdata & 0x11) {
-				case 0x00:
-					resetCounts[b][i]++;
-					iterNumber[BANKLEVEL(i,j)] = getiterNumber(0);
+				switch (newdata & 0x3) {
+				case 0x0:  //00
+					resetCounts[REQUESTID(r,b)][i]++;
+					iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] = getiterNumber(
+							0);
 					break;
-				case 0x01:
-					partresetCounts[b][i]++;
-					iterNumber[BANKLEVEL(i,j)] = getiterNumber(1);
+				case 0x1:  //01
+					partresetCounts[REQUESTID(r,b)][i]++;
+					iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] = getiterNumber(
+							1);
 					break;
-				case 0x10:
-					partsetCounts[b][i]++;
-					iterNumber[BANKLEVEL(i,j)] = getiterNumber(2);
+				case 0x2:  //10
+					partsetCounts[REQUESTID(r,b)][i]++;
+					iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] = getiterNumber(
+							2);
 					break;
-				case 0x11:
-					setCounts[b][i]++;
-					iterNumber[BANKLEVEL(i,j)] = getiterNumber(3);
+				case 0x3:  //11
+					setCounts[REQUESTID(r,b)][i]++;
+					iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] = getiterNumber(
+							3);
 					break;
 				}
+			} else {
+				iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] = 0;
 			}
 			tmp = tmp >> 2;
 			newdata = newdata >> 2;
 		}
-		if (partresetCounts[b][i] != 0) {
-			latency[i] = (uint64_t)(RESETLatency + 7 * SETLatency);
-		} else if (partsetCounts[b][i] != 0) {
-			latency[i] = max((uint64_t) latency[i],
-					(uint64_t)(RESETLatency + 5 * SETLatency));
-		} else if (setCounts[b][i] != 0) {
-			latency[i] = max((uint64_t) latency[i],
-					(uint64_t)(RESETLatency + SETLatency));
-		} else {
-			latency[i] = max((uint64_t) latency[i], (uint64_t)(RESETLatency));
-		}
-		writeLatency = max((uint64_t) latency[i], (uint64_t) writeLatency);
-		demandedToken[i] = (resetCounts[b][i] + partresetCounts[b][i]
-				+ setCounts[b][i] + partsetCounts[b][i]) * RESETToken;
+		requestToken[REQUESTID(r,b)][i] = (resetCounts[REQUESTID(r,b)][i]
+				+ partresetCounts[REQUESTID(r,b)][i]
+				+ setCounts[REQUESTID(r,b)][i]
+				+ partsetCounts[REQUESTID(r,b)][i]) * RESETToken;
 	}
 //	demandedToken[i] = setBits[i] + resetBits[i] * 2;
+}
+uint64_t TokenController::getLatency(unsigned rank, unsigned bank) {
+	uint64_t latency = 0;
+	for (size_t i = 0; i < NUM_DEVICES; i++) {
+
+		if (partresetCounts[REQUESTID(rank, bank)][i] != 0) {
+			latency = (uint64_t)(RESETLatency + 7 * SETLatency);
+			break;
+		}
+		if (partsetCounts[REQUESTID(rank, bank)][i] != 0) {
+			latency = (uint64_t)(RESETLatency + 5 * SETLatency);
+			break;
+		}
+		if (setCounts[REQUESTID(rank, bank)][i] != 0) {
+			latency = (uint64_t)(RESETLatency + SETLatency);
+			break;
+		}
+		latency = (uint64_t)(RESETLatency);
+
+	}
+	return latency;
+}
+double TokenController::getEnergy(unsigned rank, unsigned bank) {
+	double energy = 0;
+	unsigned r=rank;
+	unsigned b=bank;
+	for (size_t i = 0; i < NUM_DEVICES; i++) {
+		energy = energy
+				+ (resetCounts[REQUESTID(r,b)][i]
+						+ partresetCounts[REQUESTID(r,b)][i]
+						+ setCounts[REQUESTID(r,b)][i]
+						+ partsetCounts[REQUESTID(r,b)][i]) * getiterNumber(0)
+						* resetEnergyperCell
+				+ (partresetCounts[REQUESTID(r,b)][i] * (getiterNumber(1) - 1)
+						+ setCounts[REQUESTID(r,b)][i] * (getiterNumber(2) - 1)
+						+ partsetCounts[REQUESTID(r,b)][i]
+								* (getiterNumber(3) - 1)) * setEnergyperCell;
+	}
+	return energy;
 }
 unsigned TokenController::getiterNumber(unsigned datalevel) {
 	unsigned iternumber = 0;
@@ -121,65 +189,108 @@ unsigned TokenController::getiterNumber(unsigned datalevel) {
 }
 void TokenController::update() {
 	unsigned elapsedCycle;
-	for (unsigned b = 0; b < NUM_BANKS; b++) {
-		if (valid[b]==false)
-			continue;
-		elapsedCycle = currentClockCycle - startCycle[b];
-		if (elapsedCycle == RESETLatency) {
+	for (size_t r = 0; r < NUM_RANKS; r++) {
+		for (size_t b = 0; b < NUM_BANKS; b++) {
+			if (startCycle[REQUESTID(r,b)] == 0
+					&& valid[REQUESTID(r,b)] == false)
+				continue;
+			elapsedCycle = currentClockCycle - startCycle[REQUESTID(r,b)];
 			for (unsigned i = 0; i < NUM_DEVICES; i++) {
-				if (setCounts[b][i] == 0 && resetCounts[b][i] == 0
-						&& partsetCounts[b][i] == 0
-						&& partresetCounts[b][i] == 0)
-					continue;
-				for (unsigned j = 0; j < DEVICE_WIDTH / 2; j = j + 1) {
-					if (iterNumber[BANKLEVEL(i,j)] != 0) {
-						iterNumber[BANKLEVEL(i,j)]--;
-						demandedToken[i] = demandedToken[i] - RESETToken;
-						tokenPool[i]=tokenPool[i]+RESETToken;
-					}
+				if (elapsedCycle < RESETLatency){
+					break;
 				}
-			}
-		} else if ((elapsedCycle > RESETLatency)
+				if (setCounts[REQUESTID(r,b)][i] == 0
+						&& resetCounts[REQUESTID(r,b)][i] == 0
+						&& partsetCounts[REQUESTID(r,b)][i] == 0
+						&& partresetCounts[REQUESTID(r,b)][i] == 0)
+					continue;
+				if (elapsedCycle == RESETLatency) { //reclaim
+					tokenPool[i] = tokenPool[i]
+							+ (resetCounts[REQUESTID(r,b)][i]
+									+ partresetCounts[REQUESTID(r,b)][i]
+									+ setCounts[REQUESTID(r,b)][i]
+									+ partsetCounts[REQUESTID(r,b)][i])
+									* RESETToken;
+				} else if ((elapsedCycle > RESETLatency)
 				&& ((uint64_t)(elapsedCycle - RESETLatency)
 						% (uint64_t) SETLatency == 0)
-				&& ((elapsedCycle - RESETLatency) / SETLatency <= 8)) {
-			for (unsigned i = 0; i < NUM_DEVICES; i++) {
-				if (setCounts[b][i] == 0 && resetCounts[b][i] == 0
-						&& partsetCounts[b][i] == 0
-						&& partresetCounts[b][i] == 0)
-					continue;
+				&& ((elapsedCycle - RESETLatency) / SETLatency <= 7)){ //reclaim
+				tokenPool[i] = tokenPool[i]
+				+ (resetCounts[REQUESTID(r,b)][i]
+						+ partresetCounts[REQUESTID(r,b)][i]
+						+ setCounts[REQUESTID(r,b)][i]
+						+ partsetCounts[REQUESTID(r,b)][i])
+				* SETToken;
+			}
 				for (unsigned j = 0; j < DEVICE_WIDTH / 2; j = j + 1) {
-					if (iterNumber[BANKLEVEL(i,j)] != 0) {
-						iterNumber[BANKLEVEL(i,j)]--;
-						demandedToken[i] = demandedToken[i] - SETToken;
-						tokenPool[i]=tokenPool[i]+SETToken;
+					if (iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] != 0) {
+						iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)]--;
+					}
+					if (elapsedCycle == RESETLatency) {
+						if (resetCounts[REQUESTID(r,b)][i] != 0) {
+							resetCounts[REQUESTID(r,b)][i]--;
+						}
+					} else if ((elapsedCycle > RESETLatency)
+					&& ((elapsedCycle - RESETLatency) == SETLatency)){
+					if (setCounts[REQUESTID(r,b)][i] != 0) {
+						setCounts[REQUESTID(r,b)][i]--;
+					}
+				} else if ((elapsedCycle - RESETLatency) / SETLatency
+						== 5) {
+					if (partsetCounts[REQUESTID(r,b)][i] != 0) {
+						partsetCounts[REQUESTID(r,b)][i]--;
+					}
+				} else if ((elapsedCycle - RESETLatency) / SETLatency
+						== 7) {
+					if (partresetCounts[REQUESTID(r,b)][i] != 0) {
+						partresetCounts[REQUESTID(r,b)][i]--;
 					}
 				}
 			}
-
-		} else if ((elapsedCycle - RESETLatency) / SETLatency == 8){
-			valid[b]==false;
+				tokenPool[i] = tokenPool[i]                        //reallocated
+						- (partresetCounts[REQUESTID(r,b)][i]
+								+ setCounts[REQUESTID(r,b)][i]
+								+ partsetCounts[REQUESTID(r,b)][i]) * SETToken;
+			}
 		}
+
 	}
 }
 bool TokenController::powerAllowable(BusPacket *buspacket) {
-//	initial(currentClockCycle,buspacket);
-	unsigned bank=buspacket->bank;
-	if(valid[bank]==false){
-		initial(buspacket);
-	}
-	for(unsigned i = 0; i < NUM_DEVICES; i++){
-		if(tokenPool[i]<demandedToken[i]){
+	unsigned rank = buspacket->rank;
+	unsigned bank = buspacket->bank;
+	initial(buspacket);
+	for (unsigned i = 0; i < NUM_DEVICES; i++) {
+		if (tokenPool[i] < requestToken[REQUESTID(rank,bank)][i]) {
 			return false;
 		}
-		else{
-			tokenPool[i]=tokenPool[i]-demandedToken[i];
-		}
 	}
-	startCycle[bank]=currentClockCycle;
+	for (unsigned i = 0; i < NUM_DEVICES; i++) {
+		tokenPool[i] = tokenPool[i] - requestToken[REQUESTID(rank,bank)][i];
+	}
+	startCycle[REQUESTID(rank,bank)] = currentClockCycle;
+//	PRINT("Latency ["<<getLatency(rank, bank)<<"] RESETLatency["<<RESETLatency<< "] SETLatency ["<<SETLatency<<"]");
 	return true;
-
 }
+/*void TokenController::reset(unsigned rank, unsigned bank) {
+ for (size_t r = 0; r < NUM_RANKS; i++) {
+ for (size_t b = 0; b < NUM_BANKS; b++) {
+ for (unsigned i = 0; i < NUM_DEVICES; i++) {
+ requestToken[REQUESTID(r,b)][i] = 0;
+ resetCounts[REQUESTID(r,b)][i] = 0;
+ setCounts[REQUESTID(r,b)][i] = 0;
+ partresetCounts[REQUESTID(r,b)][i] = 0;
+ partsetCounts[REQUESTID(r,b)][i] = 0;
+ }
+ }
+ }
+
+ }*/
+//vector<BusPacket *> &TokenController::getDemandtoken(unsigned bank, unsigned chip)
+//{
+//	return demandedToken[bank][chip];
+//
+//}
 /*void TokenController::new_update() {
  unsigned elapsedCycle;
  elapsedCycle = currentClockCycle - startCycle;

@@ -53,7 +53,8 @@ unsigned REFRESH_PERIOD;
 float tCK;
 float Vdd;
 double readEnergyperCell;
-double writeEnergyperCell;
+double setEnergyperCell;
+double resetEnergyperCell;
 unsigned CL;
 unsigned AL;
 unsigned BL;
@@ -87,9 +88,6 @@ unsigned IDD5;
 unsigned IDD6;
 unsigned IDD6L;
 unsigned IDD7;
-float Factor;
-float iteration_number;
-float Ratio;
 
 //in bytes
 unsigned JEDEC_DATA_BUS_BITS;
@@ -174,12 +172,10 @@ static ConfigMap configMap[] =
 	DEFINE_UINT_PARAM(IDD6,DEV_PARAM),
 	DEFINE_UINT_PARAM(IDD6L,DEV_PARAM),
 	DEFINE_UINT_PARAM(IDD7,DEV_PARAM),
-	DEFINE_FLOAT_PARAM(Factor,DEV_PARAM),
-	DEFINE_FLOAT_PARAM(Ratio,DEV_PARAM),
-	DEFINE_FLOAT_PARAM(iteration_number,DEV_PARAM),
 	DEFINE_FLOAT_PARAM(Vdd,DEV_PARAM),
 	DEFINE_DOUBLE_PARAM(readEnergyperCell,DEV_PARAM),//pj
-	DEFINE_DOUBLE_PARAM(writeEnergyperCell,DEV_PARAM),//pj
+	DEFINE_DOUBLE_PARAM(setEnergyperCell,DEV_PARAM),//pj
+	DEFINE_DOUBLE_PARAM(resetEnergyperCell,DEV_PARAM),//pj
 	DEFINE_UINT_PARAM(NUM_CHANS,SYS_PARAM),
 	DEFINE_UINT_PARAM(JEDEC_DATA_BUS_BITS,SYS_PARAM),
 

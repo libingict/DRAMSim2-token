@@ -104,16 +104,13 @@ extern unsigned tRFC;
 extern unsigned tFAW;
 extern unsigned tCKE;
 extern unsigned tXP;
-extern float iteration_number;
-extern float Factor;
-extern float Ratio;
 extern unsigned tCMD;
 
 /* For power parameters (current and voltage), see externs in MemoryController.cpp */ 
 
 extern unsigned NUM_DEVICES;
 
-//same bank
+//same bank./
 #define READ_TO_PRE_DELAY (AL+BL/2+ max(tRTP,tCCD)-tCCD)
 #define WRITE_TO_PRE_DELAY (WL+BL/2+tWR)
 #define READ_TO_WRITE_DELAY (RL+BL/2+tRTRS-WL)

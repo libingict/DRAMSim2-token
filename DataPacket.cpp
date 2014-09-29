@@ -8,7 +8,7 @@ namespace DRAMSim
 	{
 
 		os << "DATA: ("<<hex<< dp._data << ") '";
-		os<<  "OLDATA: ("<< dp._oldata<<") "<<dec<<std::endl;
+		os<<  "OLDATA: ("<< dp._oldata<<") "<<dec<<") ";
 
 		return os;
 	}

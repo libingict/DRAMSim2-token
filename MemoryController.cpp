@@ -55,7 +55,6 @@ extern unsigned IDD6L;
 extern unsigned IDD7;
 extern float Vdd;
 extern double readEnergyperCell; //pj
-extern double writeEnergyperCell; //pj
 //extern double RETENTION_TIME;
 
 using namespace DRAMSim;
@@ -102,6 +101,11 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_,
 	burstEnergy = vector < uint64_t > (NUM_RANKS, 0);
 	actpreEnergy = vector < uint64_t > (NUM_RANKS, 0);
 	refreshEnergy = vector < uint64_t > (NUM_RANKS, 0);
+
+
+	writeEnergyperBank = vector<double>(NUM_RANKS * NUM_BANKS,
+			0.0);
+
 	ripaccessPerBank = vector<vector<RipAccesscount*> >(); // vector< vector<> > T= vector< vector<> >();
 	addraccessPerBank = vector<vector<RipAccesscount*> >();
 	totalEpochLatency = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
@@ -344,6 +348,7 @@ void MemoryController::update() {
 			}
 		}
 	}
+
 		if (poppedBusPacket->busPacketType == WRITE
 				|| poppedBusPacket->busPacketType == WRITE_P) {
 			BusPacket* bp = new BusPacket(DATA,
@@ -416,6 +421,7 @@ void MemoryController::update() {
 								bankStates[i][j].nextWrite);
 					}
 				}
+
 			}
 			if (poppedBusPacket->busPacketType == READ_P) {
 				//set read and write to nextActivate so the state table will prevent a read or write
@@ -440,9 +446,12 @@ void MemoryController::update() {
 				bankStates[rank][bank].stateChangeCountdown =
 						WRITE_TO_PRE_DELAY;
 			} else if (poppedBusPacket->busPacketType == WRITE) {
-				bankStates[rank][bank].nextPrecharge = max(
+				/*bankStates[rank][bank].nextPrecharge = max(
 						currentClockCycle + WRITE_TO_PRE_DELAY,
-						bankStates[rank][bank].nextPrecharge);
+						bankStates[rank][bank].nextPrecharge);*/
+				bankStates[rank][bank].nextPrecharge = max(
+										currentClockCycle + cancelWrite.tokenRank->getLatency(rank,bank),
+										bankStates[rank][bank].nextPrecharge);
 				bankStates[rank][bank].lastCommand = WRITE;
 			}
 
@@ -452,6 +461,8 @@ void MemoryController::update() {
 			}
 			burstEnergy[rank] += (IDD4W - IDD3N) * BL / 2 * NUM_DEVICES;
 
+			writeEnergyperBank[SEQUENTIAL(rank,bank)] = cancelWrite.tokenRank->getEnergy(rank,bank);
+
 			for (size_t i = 0; i < NUM_RANKS; i++) {
 				for (size_t j = 0; j < NUM_BANKS; j++) {
 					if (i != poppedBusPacket->rank) {
@@ -459,18 +470,20 @@ void MemoryController::update() {
 							bankStates[i][j].nextWrite = max(
 									currentClockCycle + BL / 2 + tRTRS,
 									bankStates[i][j].nextWrite);
-
 							bankStates[i][j].nextRead = max(
 									currentClockCycle + WRITE_TO_READ_DELAY_R,
 									bankStates[i][j].nextRead);
+
 						}
 					} else {
 						bankStates[i][j].nextWrite = max(
 								currentClockCycle + max(BL / 2, tCCD),
 								bankStates[i][j].nextWrite);
-
-						bankStates[i][j].nextRead = max(
+						/*bankStates[i][j].nextRead = max(
 								currentClockCycle + WRITE_TO_READ_DELAY_B,
+								bankStates[i][j].nextRead);*/
+						bankStates[i][j].nextRead = max(
+								currentClockCycle + cancelWrite.tokenRank->getLatency(rank,bank),
 								bankStates[i][j].nextRead);
 					}
 				}
@@ -863,7 +876,7 @@ bool MemoryController::addTransaction(Transaction *trans) {
 	if (WillAcceptTransaction()) {
 		trans->timeAdded = currentClockCycle;
 		transactionQueue.push_back(trans);
-		PRINT("("<<currentClockCycle<<")=="<< *trans);
+//		PRINT("("<<currentClockCycle<<")=="<< *trans);
 		return true;
 	} else {
 		return false;
@@ -906,9 +919,6 @@ void MemoryController::printStats(bool finalStats) {
 	unsigned bytesPerTransaction = (JEDEC_DATA_BUS_BITS * BL) / 8;
 	uint64_t totalBytesTransferred = totalTransactions * bytesPerTransaction;
 	double secondsThisEpoch = (double) cyclesElapsed * tCK * 1E-9;
-//	double set_energy=writeEnergyperCell*8;
-	double partialset_energy = (double) writeEnergyperCell / Ratio;
-	double set_energy = writeEnergyperCell;
 
 // only per rank
 	vector<double> backgroundPower = vector<double>(NUM_RANKS, 0.0);
@@ -918,9 +928,6 @@ void MemoryController::printStats(bool finalStats) {
 	vector<double> averagePower = vector<double>(NUM_RANKS, 0.0);
 
 	vector < uint64_t > canceledwriteperRank = vector < uint64_t
-			> (NUM_RANKS, 0);
-	vector < uint64_t > PSQsetperRank = vector < uint64_t > (NUM_RANKS, 0);
-	vector < uint64_t > PSQpartialsetperRank = vector < uint64_t
 			> (NUM_RANKS, 0);
 
 // per bank variables
@@ -932,8 +939,6 @@ void MemoryController::printStats(bool finalStats) {
 	vector<double> writePower = vector<double>(NUM_RANKS, 0.0);
 
 	vector<double> readEnergyperBank = vector<double>(NUM_RANKS * NUM_BANKS,
-			0.0);
-	vector<double> writeEnergyperBank = vector<double>(NUM_RANKS * NUM_BANKS,
 			0.0);
 
 	vector<double> bandwidth = vector<double>(NUM_RANKS * NUM_BANKS, 0.0);
@@ -962,9 +967,9 @@ void MemoryController::printStats(bool finalStats) {
 					(((double) totalReadsPerBank[SEQUENTIAL(i,j)]
 							* (double) bytesPerTransaction * 8))
 							* readEnergyperCell;
-			writeEnergyperBank[SEQUENTIAL(i,j)] =
+/*			writeEnergyperBank[SEQUENTIAL(i,j)] =
 					((double) totalWritesPerBank[SEQUENTIAL(i,j)] * set_energy)
-							* (double) bytesPerTransaction * 8;
+							* (double) bytesPerTransaction * 8;*/
 			readEnergy[i] += readEnergyperBank[SEQUENTIAL(i,j)];
 			writeEnergy[i] += writeEnergyperBank[SEQUENTIAL(i,j)];
 		}
@@ -1104,7 +1109,6 @@ void MemoryController::printStats(bool finalStats) {
 		}
 
 	}
-	PRINT("WRITE_TO_READ_DELAY "<<WRITE_TO_READ_DELAY_B);
 	PRINT(
 			endl<< " == Pending Transactions : "<<pendingReadTransactions.size()<<" ("<<currentClockCycle<<")==");
 #ifdef LOG_OUTPUT

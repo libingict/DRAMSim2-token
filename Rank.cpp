@@ -87,9 +87,11 @@ void Rank::receiveFromBus(BusPacket *packet) {
 					bankStates[packet->bank].nextRead = currentClockCycle;
 			}
 		}
+
 		if (bankStates[packet->bank].currentBankState != RowActive
 				|| currentClockCycle < bankStates[packet->bank].nextRead
 				|| packet->row != bankStates[packet->bank].openRowAddress) {
+			PRINTN("Rank ("<<currentClockCycle<<")== ");
 			packet->print();
 			ERROR(
 					"== Error - Rank " << id << " received a READ when not allowed");
@@ -107,7 +109,6 @@ void Rank::receiveFromBus(BusPacket *packet) {
 			bankStates[i].nextWrite = max(bankStates[i].nextWrite,
 					currentClockCycle + READ_TO_WRITE_DELAY);
 		}
-
 		//get the read data and put it in the storage which delays until the appropriate time (RL)
 #ifndef NO_STORAGE
 		banks[packet->bank].read(packet);
