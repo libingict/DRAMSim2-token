@@ -18,6 +18,8 @@ TokenController::TokenController(ostream &dramsim_log_) :
 		dramsim_log(dramsim_log_) {
 	startCycle = vector<unsigned>(REQUESTID(NUM_RANKS,NUM_BANKS), 0);
 	valid = vector<bool>(REQUESTID(NUM_RANKS,NUM_BANKS), false);
+	existed = vector<bool>(REQUESTID(NUM_RANKS,NUM_BANKS), false);
+	writtendata = vector < uint64_t > (REQUESTID(NUM_RANKS,NUM_BANKS), 0);
 	requestToken = vector < vector<uint64_t>
 			> (REQUESTID(NUM_RANKS,NUM_BANKS), vector < uint64_t
 					> (NUM_DEVICES, 0));
@@ -38,9 +40,7 @@ TokenController::TokenController(ostream &dramsim_log_) :
 					> (REQUESTID(NUM_RANKS,NUM_BANKS), vector<unsigned>(
 							NUM_DEVICES, 0));
 	tokenPool = vector < uint64_t > (NUM_DEVICES, 80);
-	iterNumber = vector < vector<unsigned>
-			> (REQUESTID(NUM_RANKS,NUM_BANKS), vector<unsigned>(
-					NUM_DEVICES * DEVICE_WIDTH / 2, 0)); //per cell 2-MLC
+//per cell 2-MLC
 	currentClockCycle = 0;
 }
 TokenController::~TokenController() {
@@ -54,68 +54,54 @@ TokenController::~TokenController() {
 		}
 	}
 }
-bool TokenController::hasSame(unsigned rank, unsigned bank) {
-	if (valid[REQUESTID(rank, bank)] == true) {
+/*bool TokenController::hasSame(unsigned rank, unsigned bank) {
+	if ((existed[REQUESTID(rank, bank)] == true)
+			&& (valid[REQUESTID(rank, bank)] == false)) {
 		return true;
 	} else {
 		return false;
 	}
-}
+}*/
 
 void TokenController::initial(BusPacket *buspacket) {
 	unsigned r = buspacket->rank;
 	unsigned b = buspacket->bank;
-	if (hasSame(r, b) == true) {
-		return;
-	}
-	valid[REQUESTID(r,b)] = true;
-	vector<unsigned> latency = vector<unsigned>(NUM_DEVICES, 0);
 	//64bit data, from low to high mapped to chip 0-7
 	uint64_t oldata, newdata;
-	uint64_t writtendata, tmp;
+	uint64_t tmp;
+	if ((existed[REQUESTID(r, b)] == true)
+			|| (valid[REQUESTID(r, b)] == true)) {
+		return;
+	}
+	existed[REQUESTID(r,b)]=true;
 	newdata = buspacket->dataPacket->getData();
 	oldata = buspacket->dataPacket->getoldData();
 //	PRINT("newdata is :"<<hex<< newdata<<" oldata is "<< oldata<<dec);
-	writtendata = oldata ^ newdata; // same is zero, different is one
-	tmp = writtendata;
+	writtendata[REQUESTID(r,b)] = oldata ^ newdata; // same is zero, different is one
+	if (writtendata[REQUESTID(r,b)] == 0) {
+		return;
+	}
+	tmp = writtendata[REQUESTID(r,b)];
 	//actually this is different for each chip.
 	for (unsigned i = 0; i < NUM_DEVICES; i++) {
-		if (tmp == 0) {
-			resetCounts[REQUESTID(r,b)][i] = 0;
-			partresetCounts[REQUESTID(r,b)][i] = 0;
-			partsetCounts[REQUESTID(r,b)][i] = 0;
-			setCounts[REQUESTID(r,b)][i] = 0;
-			requestToken[REQUESTID(r,b)][i] = 0;
-			continue;
-		}
 		for (unsigned j = 0; j < DEVICE_WIDTH / 2; j = j + 1) {  //Per chip
-			if (tmp & 0x3 != 0) {
+			if ((tmp & 0x3) != 0) {
 //				demandedToken[i];
 //				calculate the demandedToken
 				switch (newdata & 0x3) {
 				case 0x0:  //00
 					resetCounts[REQUESTID(r,b)][i]++;
-					iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] = getiterNumber(
-							0);
 					break;
 				case 0x1:  //01
 					partresetCounts[REQUESTID(r,b)][i]++;
-					iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] = getiterNumber(
-							1);
 					break;
 				case 0x2:  //10
 					partsetCounts[REQUESTID(r,b)][i]++;
-					iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] = getiterNumber(
-							2);
 					break;
 				case 0x3:  //11
 					setCounts[REQUESTID(r,b)][i]++;
-					iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] = getiterNumber(
-							3);
 					break;
 				}
-			} else {
-				iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] = 0;
 			}
 			tmp = tmp >> 2;
 			newdata = newdata >> 2;
@@ -129,29 +115,36 @@ void TokenController::initial(BusPacket *buspacket) {
 }
 uint64_t TokenController::getLatency(unsigned rank, unsigned bank) {
 	uint64_t latency = 0;
+	if (writtendata[REQUESTID(rank,bank)] == 0) {
+		return latency;
+	}
 	for (size_t i = 0; i < NUM_DEVICES; i++) {
-
 		if (partresetCounts[REQUESTID(rank, bank)][i] != 0) {
-			latency = (uint64_t)(RESETLatency + 7 * SETLatency);
+			latency = (uint64_t)(RESETLatency + 7 * (unsigned) SETLatency);
 			break;
 		}
 		if (partsetCounts[REQUESTID(rank, bank)][i] != 0) {
-			latency = (uint64_t)(RESETLatency + 5 * SETLatency);
+			latency = (uint64_t)(RESETLatency + 5 * (unsigned) SETLatency);
 			break;
 		}
 		if (setCounts[REQUESTID(rank, bank)][i] != 0) {
-			latency = (uint64_t)(RESETLatency + SETLatency);
+			latency = (uint64_t)(RESETLatency + (unsigned) SETLatency);
 			break;
 		}
-		latency = (uint64_t)(RESETLatency);
-
+		if (resetCounts[REQUESTID(rank, bank)][i] != 0) {
+			latency = (uint64_t)(RESETLatency);
+		}
 	}
+//	PRINT("latency["<<latency<<"] rank["<<rank<< "] bank["<<bank<<"]");
 	return latency;
 }
 double TokenController::getEnergy(unsigned rank, unsigned bank) {
 	double energy = 0;
-	unsigned r=rank;
-	unsigned b=bank;
+	unsigned r = rank;
+	unsigned b = bank;
+	if (writtendata[REQUESTID(r,b)] == 0) {
+		return energy;
+	}
 	for (size_t i = 0; i < NUM_DEVICES; i++) {
 		energy = energy
 				+ (resetCounts[REQUESTID(r,b)][i]
@@ -164,6 +157,8 @@ double TokenController::getEnergy(unsigned rank, unsigned bank) {
 						+ partsetCounts[REQUESTID(r,b)][i]
 								* (getiterNumber(3) - 1)) * setEnergyperCell;
 	}
+//	PRINT(
+//			"energy ["<<energy<<"] resetEnergyperCell["<<RESETLatency<< "] setEnergyperCell ["<<setEnergyperCell<<"]");
 	return energy;
 }
 unsigned TokenController::getiterNumber(unsigned datalevel) {
@@ -188,153 +183,186 @@ unsigned TokenController::getiterNumber(unsigned datalevel) {
 	return iternumber;
 }
 void TokenController::update() {
-	unsigned elapsedCycle;
 	for (size_t r = 0; r < NUM_RANKS; r++) {
 		for (size_t b = 0; b < NUM_BANKS; b++) {
-			if (startCycle[REQUESTID(r,b)] == 0
-					&& valid[REQUESTID(r,b)] == false)
+			unsigned bitsCount = 0;
+			unsigned elapsedCycle = 0;
+			unsigned delta = 0;
+			if (writtendata[REQUESTID(r,b)] == 0
+					|| existed[REQUESTID(r,b)] == false
+					|| valid[REQUESTID(r,b)] == false) {
 				continue;
+			}
 			elapsedCycle = currentClockCycle - startCycle[REQUESTID(r,b)];
-			for (unsigned i = 0; i < NUM_DEVICES; i++) {
-				if (elapsedCycle < RESETLatency){
-					break;
+			delta = elapsedCycle - RESETLatency;
+			if ((delta != 0)
+					&& (delta != (unsigned) SETLatency)&& (delta!= 5*(unsigned)SETLatency)&& (delta!= 7*(unsigned)SETLatency)){
+					continue;
 				}
+			for (unsigned i = 0; i < NUM_DEVICES; i++) {
 				if (setCounts[REQUESTID(r,b)][i] == 0
 						&& resetCounts[REQUESTID(r,b)][i] == 0
 						&& partsetCounts[REQUESTID(r,b)][i] == 0
-						&& partresetCounts[REQUESTID(r,b)][i] == 0)
+						&& partresetCounts[REQUESTID(r,b)][i] == 0) {
 					continue;
-				if (elapsedCycle == RESETLatency) { //reclaim
+				}
+//				PRINTN(
+//						"elapsedCycle["<<elapsedCycle<<"] r["<<r <<"] b["<<b<<"] ");
+//				PRINTN(
+//						"chip["<<i<<"] setCounts["<<setCounts[REQUESTID(r,b)][i]<<"] resetCounts["<<resetCounts[REQUESTID(r,b)][i]<<"] partsetCounts["<<partsetCounts[REQUESTID(r,b)][i]<<"] partresetCounts["<<partresetCounts[REQUESTID(r,b)][i]<<"] tokenPool["<<tokenPool[i]<<"] ");
+				if (delta == 0) { //reclaim
 					tokenPool[i] = tokenPool[i]
 							+ (resetCounts[REQUESTID(r,b)][i]
 									+ partresetCounts[REQUESTID(r,b)][i]
 									+ setCounts[REQUESTID(r,b)][i]
 									+ partsetCounts[REQUESTID(r,b)][i])
 									* RESETToken;
-				} else if ((elapsedCycle > RESETLatency)
-				&& ((uint64_t)(elapsedCycle - RESETLatency)
-						% (uint64_t) SETLatency == 0)
-				&& ((elapsedCycle - RESETLatency) / SETLatency <= 7)){ //reclaim
-				tokenPool[i] = tokenPool[i]
-				+ (resetCounts[REQUESTID(r,b)][i]
-						+ partresetCounts[REQUESTID(r,b)][i]
-						+ setCounts[REQUESTID(r,b)][i]
-						+ partsetCounts[REQUESTID(r,b)][i])
-				* SETToken;
-			}
-				for (unsigned j = 0; j < DEVICE_WIDTH / 2; j = j + 1) {
-					if (iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)] != 0) {
-						iterNumber[REQUESTID(r,b)][BANKLEVEL(i,j)]--;
-					}
-					if (elapsedCycle == RESETLatency) {
-						if (resetCounts[REQUESTID(r,b)][i] != 0) {
-							resetCounts[REQUESTID(r,b)][i]--;
-						}
-					} else if ((elapsedCycle > RESETLatency)
-					&& ((elapsedCycle - RESETLatency) == SETLatency)){
-					if (setCounts[REQUESTID(r,b)][i] != 0) {
-						setCounts[REQUESTID(r,b)][i]--;
-					}
-				} else if ((elapsedCycle - RESETLatency) / SETLatency
-						== 5) {
-					if (partsetCounts[REQUESTID(r,b)][i] != 0) {
-						partsetCounts[REQUESTID(r,b)][i]--;
-					}
-				} else if ((elapsedCycle - RESETLatency) / SETLatency
-						== 7) {
-					if (partresetCounts[REQUESTID(r,b)][i] != 0) {
-						partresetCounts[REQUESTID(r,b)][i]--;
-					}
+					resetCounts[REQUESTID(r,b)][i] = 0;
+					tokenPool[i] = tokenPool[i]
+							- (partresetCounts[REQUESTID(r,b)][i]
+									+ setCounts[REQUESTID(r,b)][i]
+									+ partsetCounts[REQUESTID(r,b)][i])
+									* SETToken; //reallocated
+//					PRINTN("delat=0; tokenPool["<<tokenPool[i]<<"] ");
+				} else if (delta == (unsigned) SETLatency) { //reclaim
+					tokenPool[i] = tokenPool[i]
+							+ (setCounts[REQUESTID(r,b)][i]) * SETToken;
+					setCounts[REQUESTID(r,b)][i] = 0;
+//					PRINTN("delat=SETLatency; tokenPool["<<tokenPool[i]<<"] ");
+				} else if (delta == 5 * (unsigned) SETLatency) {
+					tokenPool[i] = tokenPool[i]
+							+ (partsetCounts[REQUESTID(r,b)][i]) * SETToken;
+					partsetCounts[REQUESTID(r,b)][i] = 0; //reallocated
+//					PRINTN("delat=5*SETLatency; tokenPool["<<tokenPool[i]<<"] ");
+				} else if (delta == 7 * (unsigned) SETLatency) { //finish no reallocate
+					tokenPool[i] = tokenPool[i]
+							+ (partresetCounts[REQUESTID(r,b)][i]) * SETToken;
+					partresetCounts[REQUESTID(r,b)][i] = 0;
+					valid[REQUESTID(r,b)] = false;
+//					PRINTN("delat=7*SETLatency; tokenPool["<<tokenPool[i]<<"] ");
 				}
+				bitsCount = bitsCount + setCounts[REQUESTID(r,b)][i]
+						+ resetCounts[REQUESTID(r,b)][i]
+						+ partsetCounts[REQUESTID(r,b)][i]
+						+ partresetCounts[REQUESTID(r,b)][i];
+//				PRINT("bitsCount["<<bitsCount<<"]");
 			}
-				tokenPool[i] = tokenPool[i]                        //reallocated
-						- (partresetCounts[REQUESTID(r,b)][i]
-								+ setCounts[REQUESTID(r,b)][i]
-								+ partsetCounts[REQUESTID(r,b)][i]) * SETToken;
+			if (bitsCount == 0) {
+//				PRINT("r["<<r <<"] b["<<b<<"] bitsCount["<<bitsCount<<"]");
+				valid[REQUESTID(r,b)] = false;
+				writtendata[REQUESTID(r,b)] = 0;
+				existed[REQUESTID(r, b)] =false;
 			}
 		}
-
 	}
 }
 bool TokenController::powerAllowable(BusPacket *buspacket) {
 	unsigned rank = buspacket->rank;
 	unsigned bank = buspacket->bank;
+	if (buspacket->busPacketType != WRITE) {
+		return true;
+	}
 	initial(buspacket);
+	if (writtendata[REQUESTID(rank,bank)] == 0) {
+		startCycle[REQUESTID(rank,bank)] = currentClockCycle;
+		valid[REQUESTID(rank,bank)] = false;
+		return true;
+	}
 	for (unsigned i = 0; i < NUM_DEVICES; i++) {
 		if (tokenPool[i] < requestToken[REQUESTID(rank,bank)][i]) {
+			startCycle[REQUESTID(rank,bank)] = currentClockCycle;
+//			PRINT(
+//					"TC false currentClock["<<currentClockCycle<<"] chip["<<i<<"] tokenPool["<<tokenPool[i]<<"] requestToken["<<requestToken[REQUESTID(rank,bank)][i]<<"] r["<<rank <<"] b["<<bank<<"] ");
 			return false;
 		}
 	}
-	for (unsigned i = 0; i < NUM_DEVICES; i++) {
-		tokenPool[i] = tokenPool[i] - requestToken[REQUESTID(rank,bank)][i];
+	if (valid[REQUESTID(rank,bank)] == false) {
+//		PRINTN(
+//				"TC true=== currentClock["<<currentClockCycle<<"] r["<<rank <<"] b["<<bank<<"] ");
+		for (unsigned i = 0; i < NUM_DEVICES; i++) {
+			tokenPool[i] = tokenPool[i] - requestToken[REQUESTID(rank,bank)][i];
+//			PRINTN(
+//					"chip["<<i<<"] tokenPool["<<tokenPool[i]<<"] requestToken["<<requestToken[REQUESTID(rank,bank)][i]<<"] ");
+		}
+//		PRINT("");
+		valid[REQUESTID(rank,bank)] = true;
+		startCycle[REQUESTID(rank,bank)] = currentClockCycle;
+		return true;
 	}
-	startCycle[REQUESTID(rank,bank)] = currentClockCycle;
-//	PRINT("Latency ["<<getLatency(rank, bank)<<"] RESETLatency["<<RESETLatency<< "] SETLatency ["<<SETLatency<<"]");
-	return true;
 }
-/*void TokenController::reset(unsigned rank, unsigned bank) {
- for (size_t r = 0; r < NUM_RANKS; i++) {
- for (size_t b = 0; b < NUM_BANKS; b++) {
- for (unsigned i = 0; i < NUM_DEVICES; i++) {
- requestToken[REQUESTID(r,b)][i] = 0;
- resetCounts[REQUESTID(r,b)][i] = 0;
- setCounts[REQUESTID(r,b)][i] = 0;
- partresetCounts[REQUESTID(r,b)][i] = 0;
- partsetCounts[REQUESTID(r,b)][i] = 0;
- }
- }
- }
-
- }*/
+void TokenController::print() {
+	for (size_t r = 0; r < NUM_RANKS; r++) {
+		for (size_t b = 0; b < NUM_BANKS; b++) {
+			PRINTN("r["<<r <<"] b["<<b<<"] ");
+			for (unsigned i = 0; i < NUM_DEVICES; i++) {
+				PRINTN(
+						"chip["<<i<<"] tokenPool["<<tokenPool[i]<<"] requestToken["<<requestToken[REQUESTID(r,b)][i]<<"] setCounts["<<setCounts[REQUESTID(r,b)][i]<<"] resetCounts["<<resetCounts[REQUESTID(r,b)][i]<<"] partsetCounts["<<partsetCounts[REQUESTID(r,b)][i]<<"] partresetCounts["<<partresetCounts[REQUESTID(r,b)][i]<<"] ");
+			}
+			PRINT("");
+		}
+	}
+}
 //vector<BusPacket *> &TokenController::getDemandtoken(unsigned bank, unsigned chip)
 //{
 //	return demandedToken[bank][chip];
 //
 //}
-/*void TokenController::new_update() {
- unsigned elapsedCycle;
- elapsedCycle = currentClockCycle - startCycle;
- if (elapsedCycle == RESETLatency) {
- for (unsigned i = 0; i < NUM_DEVICES; i++) {
- if (setCounts[i] == 0 && resetCounts[i] == 0
- && partsetCounts[i] == 0 && partresetCounts[i] == 0)
+/*
+ void TokenController::new_update() {
+ unsigned elapsedCycle = 0;
+ unsigned bitCounts = 0;
+ for (size_t r = 0; r < NUM_RANKS; r++) {
+ for (size_t b = 0; b < NUM_BANKS; b++) {
+ if (startCycle[REQUESTID(r,b)] == 0
+ || valid[REQUESTID(r,b)] == false) {
  continue;
- for (unsigned j = 0; j < DEVICE_WIDTH / 2; j = j + 1) {
- if (iterNumber[BANKLEVEL(i,j)] != 0) {
- iterNumber[BANKLEVEL(i,j)]--;
  }
- if (setCounts[i] != 0)
- setCounts[i]--;
- if (resetCounts[i] != 0)
- resetCounts[i]--;
- if (partsetCounts[i] != 0)
- setCounts[i]--;
- if (partresetCounts[i] != 0)
- partresetCounts[i]--;
- }
- demandedToken[i] = (resetCounts[i] + partresetCounts[i]
- + setCounts[i] + partsetCounts[i]) * SETToken
- }
- } else if ((elapsedCycle > RESETLatency)
- && ((elapsedCycle - RESETLatency) / SETLatency <= 8)) {
+ elapsedCycle = currentClockCycle - startCycle[REQUESTID(r,b)];
  for (unsigned i = 0; i < NUM_DEVICES; i++) {
- if (setCounts[i] == 0 && resetCounts[i] == 0
- && partsetCounts[i] == 0 && partresetCounts[i] == 0)
+ if (elapsedCycle < RESETLatency) {
+ break;
+ }
+ if (setCounts[REQUESTID(r,b)][i] == 0
+ && resetCounts[REQUESTID(r,b)][i] == 0
+ && partsetCounts[REQUESTID(r,b)][i] == 0
+ && partresetCounts[REQUESTID(r,b)][i] == 0) {
  continue;
- for (unsigned j = 0; j < DEVICE_WIDTH / 2; j = j + 1) {
- if (iterNumber[BANKLEVEL(i,j)] != 0) {
- iterNumber[BANKLEVEL(i,j)]--;
  }
- if (setCounts[i] != 0)
- setCounts[i]--;
- if (partsetCounts[i] != 0)
- setCounts[i]--;
- if (partresetCounts[i] != 0)
- partresetCounts[i]--;
+ if (elapsedCycle == RESETLatency) { //reclaim
+ tokenPool[i] = tokenPool[i]
+ + (resetCounts[REQUESTID(r,b)][i]
+ + partresetCounts[REQUESTID(r,b)][i]
+ + setCounts[REQUESTID(r,b)][i]
+ + partsetCounts[REQUESTID(r,b)][i])
+ * RESETToken;
+ resetCounts[REQUESTID(r,b)][i] = 0;
+ tokenPool[i] = tokenPool[i]
+ - (partresetCounts[REQUESTID(r,b)][i]
+ + setCounts[REQUESTID(r,b)][i]
+ + partsetCounts[REQUESTID(r,b)][i])
+ * SETToken; //reallocated
+ } else if (((uint64_t)(elapsedCycle - RESETLatency)
+ % (uint64_t) SETLatency == 0)
+ && ((elapsedCycle - RESETLatency)/ SETLatency < 7)) { //reclaim
+ if ((elapsedCycle - RESETLatency)== SETLatency) {
+ setCounts[REQUESTID(r,b)][i] = 0;
+ } else if ((elapsedCycle - RESETLatency)== 5*SETLatency){
+ partsetCounts[REQUESTID(r,b)][i] = 0;
+ } //reallocated
+ } else if ((elapsedCycle - RESETLatency)== 7*SETLatency){
+ partresetCounts[REQUESTID(r,b)][i] = 0;
+ tokenPool[i] = 80;
+ valid[REQUESTID(r,b)] = false;
  }
- demandedToken[i] = (resetCounts[i] + partresetCounts[i]
- + setCounts[i] + partsetCounts[i]) * SETToken
+ bitCounts = setCounts[REQUESTID(r,b)][i]
+ + resetCounts[REQUESTID(r,b)][i]
+ + partsetCounts[REQUESTID(r,b)][i]
+ + partresetCounts[REQUESTID(r,b)][i];
  }
-
+ if ((elapsedCycle > RESETLatency)&& bitCounts== 0){
+ valid[REQUESTID(r,b)] = false;
  }
- }*/
+ }
+ }
+ }
+ */

@@ -102,7 +102,6 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_,
 	actpreEnergy = vector < uint64_t > (NUM_RANKS, 0);
 	refreshEnergy = vector < uint64_t > (NUM_RANKS, 0);
 
-
 	writeEnergyperBank = vector<double>(NUM_RANKS * NUM_BANKS,
 			0.0);
 
@@ -232,6 +231,8 @@ void MemoryController::update() {
 							parentMemorySystem->systemID,
 							outgoingDataPacket->physicalAddress,
 							currentClockCycle);
+/*					PRINTN("Write Done ");
+					outgoingDataPacket->print();*/
 				}
 			}
 			(*ranks)[outgoingDataPacket->rank]->receiveFromBus(
@@ -304,7 +305,6 @@ void MemoryController::update() {
 //	} else {
 //		popqueue = commandQueue.pop(&poppedBusPacket);
 //	}
-	//PRINT("STEP 21");
 	if (popqueue) {
 /*		psQueue.iniPredictTable(poppedBusPacket->rank, poppedBusPacket->bank,
 				poppedBusPacket->physicalAddress, poppedBusPacket->RIP);*/
@@ -315,8 +315,6 @@ void MemoryController::update() {
 				|| poppedBusPacket->busPacketType == WRITE_P) { //requests from writequeue
 			if (parentMemorySystem->WriteDataDone != NULL) {
 				if (!cancelWrite.writepriority[rank][bank]) {
-					//	PRINT(
-					//			"WRITE ACK readpriority 0x"<<hex<<poppedBusPacket->physicalAddress<<dec);
 					(*parentMemorySystem->WriteDataDone)(
 							parentMemorySystem->systemID,
 							poppedBusPacket->physicalAddress,
@@ -348,7 +346,6 @@ void MemoryController::update() {
 			}
 		}
 	}
-
 		if (poppedBusPacket->busPacketType == WRITE
 				|| poppedBusPacket->busPacketType == WRITE_P) {
 			BusPacket* bp = new BusPacket(DATA,
@@ -358,24 +355,27 @@ void MemoryController::update() {
 			writeDataToSend.push_back(bp);
 			writeDataCountdown.push_back(WL);
 		} else {
-			if(WRITECANCEL){
-			if (parentMemorySystem->WriteDataDone != NULL) {
-				if (cancelWrite.ongoingWrite[rank][bank] != NULL
-						&& (!cancelWrite.writecancel[rank][bank])) {
-					(*parentMemorySystem->WriteDataDone)(
-							parentMemorySystem->systemID,
-							cancelWrite.ongoingWrite[rank][bank]->physicalAddress,
-							currentClockCycle);
-					delete cancelWrite.ongoingWrite[rank][bank];
-					cancelWrite.ongoingWrite[rank][bank] = NULL;
+			if (WRITECANCEL) {
+				if (parentMemorySystem->WriteDataDone != NULL) {
+					if (cancelWrite.ongoingWrite[rank][bank] != NULL
+							&& (!cancelWrite.writecancel[rank][bank])) {
+						(*parentMemorySystem->WriteDataDone)(
+								parentMemorySystem->systemID,
+								cancelWrite.ongoingWrite[rank][bank]->physicalAddress,
+								currentClockCycle);
+						delete cancelWrite.ongoingWrite[rank][bank];
+						cancelWrite.ongoingWrite[rank][bank] = NULL;
+					}
 				}
 			}
-		}
 		}
 		//
 		//update each bank's state based on the command that was just popped out of the command queue
 		//
 		//for readability's sake
+//		PRINTN("MC ("<<currentClockCycle<<")== ");
+//				poppedBusPacket->print();
+//				bankStates[rank][bank].print();
 		switch (poppedBusPacket->busPacketType) {
 		case READ_P:
 		case READ:
@@ -446,12 +446,12 @@ void MemoryController::update() {
 				bankStates[rank][bank].stateChangeCountdown =
 						WRITE_TO_PRE_DELAY;
 			} else if (poppedBusPacket->busPacketType == WRITE) {
-				/*bankStates[rank][bank].nextPrecharge = max(
-						currentClockCycle + WRITE_TO_PRE_DELAY,
-						bankStates[rank][bank].nextPrecharge);*/
 				bankStates[rank][bank].nextPrecharge = max(
+						currentClockCycle + WRITE_TO_PRE_DELAY,
+						bankStates[rank][bank].nextPrecharge);
+				/*bankStates[rank][bank].nextPrecharge = max(
 										currentClockCycle + cancelWrite.tokenRank->getLatency(rank,bank),
-										bankStates[rank][bank].nextPrecharge);
+										bankStates[rank][bank].nextPrecharge);*/
 				bankStates[rank][bank].lastCommand = WRITE;
 			}
 
@@ -461,7 +461,7 @@ void MemoryController::update() {
 			}
 			burstEnergy[rank] += (IDD4W - IDD3N) * BL / 2 * NUM_DEVICES;
 
-			writeEnergyperBank[SEQUENTIAL(rank,bank)] = cancelWrite.tokenRank->getEnergy(rank,bank);
+			writeEnergyperBank[SEQUENTIAL(rank,bank)] += cancelWrite.tokenRank->getEnergy(rank,bank);
 
 			for (size_t i = 0; i < NUM_RANKS; i++) {
 				for (size_t j = 0; j < NUM_BANKS; j++) {
@@ -473,18 +473,17 @@ void MemoryController::update() {
 							bankStates[i][j].nextRead = max(
 									currentClockCycle + WRITE_TO_READ_DELAY_R,
 									bankStates[i][j].nextRead);
-
 						}
 					} else {
 						bankStates[i][j].nextWrite = max(
 								currentClockCycle + max(BL / 2, tCCD),
 								bankStates[i][j].nextWrite);
-						/*bankStates[i][j].nextRead = max(
-								currentClockCycle + WRITE_TO_READ_DELAY_B,
-								bankStates[i][j].nextRead);*/
 						bankStates[i][j].nextRead = max(
-								currentClockCycle + cancelWrite.tokenRank->getLatency(rank,bank),
+								currentClockCycle + WRITE_TO_READ_DELAY_B,
 								bankStates[i][j].nextRead);
+						/*bankStates[i][j].nextRead = max(
+								currentClockCycle + cancelWrite.tokenRank->getLatency(rank,bank),
+								bankStates[i][j].nextRead);*/
 					}
 				}
 			}
@@ -577,6 +576,7 @@ void MemoryController::update() {
 		}
 		outgoingCmdPacket = poppedBusPacket;
 		cmdCyclesLeft = tCMD;
+//		bankStates[rank][bank].print();
 	}
 
 //if not find issuable cmd due to the current write issue, then cancel the current write

@@ -77,6 +77,9 @@ void Rank::receiveFromBus(BusPacket *packet) {
 	if (VERIFICATION_OUTPUT) {
 		packet->print(currentClockCycle, false);
 	}
+//	PRINTN("Rank ("<<currentClockCycle<<")== ");
+//				packet->print();
+//				bankStates[packet->bank].print();
 	switch (packet->busPacketType) {
 	case READ:
 		//make sure a read is allowed
@@ -93,6 +96,7 @@ void Rank::receiveFromBus(BusPacket *packet) {
 				|| packet->row != bankStates[packet->bank].openRowAddress) {
 			PRINTN("Rank ("<<currentClockCycle<<")== ");
 			packet->print();
+			bankStates[packet->bank].print();
 			ERROR(
 					"== Error - Rank " << id << " received a READ when not allowed");
 			exit(0);
@@ -164,19 +168,21 @@ void Rank::receiveFromBus(BusPacket *packet) {
 			bankStates[packet->bank].print();
 			exit(0);
 		}
-
 		//update state table
 		bankStates[packet->bank].lastCommand = WRITE;
-		bankStates[packet->bank].nextPrecharge = max(
-				bankStates[packet->bank].nextPrecharge,
-				currentClockCycle + WRITE_TO_PRE_DELAY);
+//			bankStates[packet->bank].nextPrecharge = max(
+//					bankStates[packet->bank].nextPrecharge,
+//					currentClockCycle + WRITE_TO_PRE_DELAY);
+			bankStates[packet->bank].nextPrecharge = max(
+			bankStates[packet->bank].nextPrecharge, currentClockCycle);
 		for (size_t i = 0; i < NUM_BANKS; i++) {
-			bankStates[i].nextRead = max(bankStates[i].nextRead,
-					currentClockCycle + WRITE_TO_READ_DELAY_B);
+//				bankStates[i].nextRead = max(bankStates[i].nextRead,
+//						currentClockCycle + WRITE_TO_READ_DELAY_B);
+				bankStates[i].nextRead = max(bankStates[i].nextRead,
+						currentClockCycle);
 			bankStates[i].nextWrite = max(bankStates[i].nextWrite,
 					currentClockCycle + max(BL / 2, tCCD));
 		}
-
 		//take note of where data is going when it arrives
 		incomingWriteBank = packet->bank;
 		incomingWriteRow = packet->row;
@@ -251,6 +257,9 @@ void Rank::receiveFromBus(BusPacket *packet) {
 		//make sure precharge is allowed
 		if (bankStates[packet->bank].currentBankState != RowActive
 				|| currentClockCycle < bankStates[packet->bank].nextPrecharge) {
+			PRINTN("Rank ("<<currentClockCycle<<")== ");
+			packet->print();
+			bankStates[packet->bank].print();
 			ERROR(
 					"== Error - Rank " << id << " received a PRE when not allowed");
 			exit(0);
@@ -301,6 +310,7 @@ void Rank::receiveFromBus(BusPacket *packet) {
 		exit(0);
 		break;
 	}
+//	bankStates[packet->bank].print();
 }
 
 int Rank::getId() const {

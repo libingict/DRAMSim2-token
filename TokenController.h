@@ -9,13 +9,15 @@
 #define TOKENCONTROLLER_H_
 
 #include "SimulatorObject.h"
-//#include "SystemConfiguration.h"
+#include "SystemConfiguration.h"
 #include"BusPacket.h"
 
+/*
 #define RESETLatency (WL+BL/2+150/tCK)
 #define SETLatency (WL+BL/2+250/tCK)
 #define RESETToken 2
 #define SETToken 1
+*/
 using namespace std;
 namespace DRAMSim
 {
@@ -23,11 +25,13 @@ class TokenController: public SimulatorObject {
 private:
 	vector<unsigned> startCycle; //per bank
 	vector<bool> valid;	//per bank
+	vector<bool> existed;	//per bank
 	ostream &dramsim_log;
-	bool hasSame(unsigned rank, unsigned bank);
+
 public:
 	TokenController(ostream &dramsim_log_) ;
 	void initial(BusPacket *bspacket);
+	void print();
 	enum DataLevel
 	{
 		RESET,
@@ -35,8 +39,7 @@ public:
 		PARTSET,
 		SET
 	};
-
-	vector<vector<unsigned> >  iterNumber; //per cell
+	vector<uint64_t> writtendata;
 	vector<vector<uint64_t> > requestToken; //per cell
 	vector<uint64_t> tokenPool;		//per chip
 	vector<vector<unsigned> > resetCounts;	//per chip
@@ -48,7 +51,6 @@ public:
 //		rank=rankid_;
 //		bank=bankid_;
 //	}
-	void intial(BusPacket *buspacket);
 	uint64_t getLatency(unsigned rank, unsigned bank);
 	double getEnergy(unsigned rank, unsigned bank);
 
