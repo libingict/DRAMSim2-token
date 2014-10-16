@@ -136,14 +136,15 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 	for (unsigned i = 0; i < queue.size(); i++) {
 		BusPacket *request = queue[i];
 		if (requestQueue.isIssuable(request)) { //check for the timing constraint
-			/*if (request->busPacketType == WRITE) {
-//				PRINTN(
-//						"issueRequest read empty clock["<<currentClockCycle<<"] ");
-//				request->print();
-				if (!tokenRank->powerAllowable(request)) {
+			if (request->busPacketType == WRITE) {
+				PRINTN(
+						"issueRequest read empty clock["<<currentClockCycle<<"] ");
+				request->print();
+				/*if (!tokenRank->powerAllowable(request)) {
 					return false;
-				}
-			}*/
+				}*/
+				tokenRank->initial(request);
+			}
 
 			busPacket = new BusPacket(request->busPacketType,
 					request->physicalAddress, request->column, request->row,
@@ -402,6 +403,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 																writequeue[i]->RIP);
 //												if (tokenRank->powerAllowable(
 //														*busPacket)) {
+												tokenRank->initial(*busPacket); //nolimit
 													if (writequeue[i]->busPacketType
 															== ACTIVATE
 															&& writequeue[i + 1]->row
@@ -423,9 +425,9 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 																writequeue.begin()
 																		+ i);
 													}
-//												PRINTN(
-//														"readP read empty clock["<<currentClockCycle<<"] ");
-//												(*busPacket)->print();
+												PRINTN(
+														"readP read empty clock["<<currentClockCycle<<"] ");
+												(*busPacket)->print();
 													return true;
 //												}
 //												delete (*busPacket);

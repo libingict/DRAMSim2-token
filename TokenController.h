@@ -39,6 +39,8 @@ public:
 		PARTSET,
 		SET
 	};
+	vector < uint64_t > latency;
+	vector < double > energy;
 	vector<uint64_t> writtendata;
 	vector<vector<uint64_t> > requestToken; //per cell
 	vector<uint64_t> tokenPool;		//per chip
@@ -51,8 +53,7 @@ public:
 //		rank=rankid_;
 //		bank=bankid_;
 //	}
-	uint64_t getLatency(unsigned rank, unsigned bank);
-	double getEnergy(unsigned rank, unsigned bank);
+//	double getEnergy(unsigned rank, unsigned bank);
 
 	unsigned getiterNumber(unsigned datalevel);
 	bool powerAllowable(BusPacket *buspacket);

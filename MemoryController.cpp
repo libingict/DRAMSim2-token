@@ -446,12 +446,12 @@ void MemoryController::update() {
 				bankStates[rank][bank].stateChangeCountdown =
 						WRITE_TO_PRE_DELAY;
 			} else if (poppedBusPacket->busPacketType == WRITE) {
-				bankStates[rank][bank].nextPrecharge = max(
-						currentClockCycle + WRITE_TO_PRE_DELAY,
-						bankStates[rank][bank].nextPrecharge);
 				/*bankStates[rank][bank].nextPrecharge = max(
-										currentClockCycle + cancelWrite.tokenRank->getLatency(rank,bank),
-										bankStates[rank][bank].nextPrecharge);*/
+						currentClockCycle + WRITE_TO_PRE_DELAY,
+						bankStates[rank][bank].nextPrecharge);*/
+				bankStates[rank][bank].nextPrecharge = max(
+										currentClockCycle + cancelWrite.tokenRank->latency[SEQUENTIAL(rank,bank)],
+										bankStates[rank][bank].nextPrecharge);
 				bankStates[rank][bank].lastCommand = WRITE;
 			}
 
@@ -461,7 +461,7 @@ void MemoryController::update() {
 			}
 			burstEnergy[rank] += (IDD4W - IDD3N) * BL / 2 * NUM_DEVICES;
 
-			writeEnergyperBank[SEQUENTIAL(rank,bank)] += cancelWrite.tokenRank->getEnergy(rank,bank);
+			writeEnergyperBank[SEQUENTIAL(rank,bank)] += cancelWrite.tokenRank->energy[SEQUENTIAL(rank,bank)];
 
 			for (size_t i = 0; i < NUM_RANKS; i++) {
 				for (size_t j = 0; j < NUM_BANKS; j++) {
@@ -478,12 +478,12 @@ void MemoryController::update() {
 						bankStates[i][j].nextWrite = max(
 								currentClockCycle + max(BL / 2, tCCD),
 								bankStates[i][j].nextWrite);
-						bankStates[i][j].nextRead = max(
-								currentClockCycle + WRITE_TO_READ_DELAY_B,
-								bankStates[i][j].nextRead);
 						/*bankStates[i][j].nextRead = max(
-								currentClockCycle + cancelWrite.tokenRank->getLatency(rank,bank),
+								currentClockCycle + WRITE_TO_READ_DELAY_B,
 								bankStates[i][j].nextRead);*/
+						bankStates[i][j].nextRead = max(
+								currentClockCycle + cancelWrite.tokenRank->latency[SEQUENTIAL(rank,bank)],
+								bankStates[i][j].nextRead);
 					}
 				}
 			}
