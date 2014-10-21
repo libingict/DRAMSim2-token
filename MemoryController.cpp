@@ -102,8 +102,7 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_,
 	actpreEnergy = vector < uint64_t > (NUM_RANKS, 0);
 	refreshEnergy = vector < uint64_t > (NUM_RANKS, 0);
 
-	writeEnergyperBank = vector<double>(NUM_RANKS * NUM_BANKS,
-			0.0);
+	writeEnergyperBank = vector<double>(NUM_RANKS * NUM_BANKS, 0.0);
 
 	ripaccessPerBank = vector<vector<RipAccesscount*> >(); // vector< vector<> > T= vector< vector<> >();
 	addraccessPerBank = vector<vector<RipAccesscount*> >();
@@ -184,20 +183,20 @@ void MemoryController::update() {
 					case PRECHARGE:
 						bankStates[i][j].currentBankState = Idle;
 						break;
-						if(WRITECANCEL){
-					case WRITE:
-						if (parentMemorySystem->WriteDataDone != NULL) {
-							if (cancelWrite.ongoingWrite[i][j] != NULL) {
+						if (WRITECANCEL) {
+							case WRITE:
+							if (parentMemorySystem->WriteDataDone != NULL) {
+								if (cancelWrite.ongoingWrite[i][j] != NULL) {
 //							PRINT("clock "<<currentClockCycle<<" WRITE ACK writeP ongoing is 0x"<<hex<<cancelWrite.ongoingWrite[i][j]->physicalAddress<<dec<<" then ongoing NULL");
-								(*parentMemorySystem->WriteDataDone)(
-										parentMemorySystem->systemID,
-										cancelWrite.ongoingWrite[i][j]->physicalAddress,
-										currentClockCycle);
-								delete cancelWrite.ongoingWrite[i][j];
-								cancelWrite.ongoingWrite[i][j] = NULL;
+									(*parentMemorySystem->WriteDataDone)(
+											parentMemorySystem->systemID,
+											cancelWrite.ongoingWrite[i][j]->physicalAddress,
+											currentClockCycle);
+									delete cancelWrite.ongoingWrite[i][j];
+									cancelWrite.ongoingWrite[i][j] = NULL;
+								}
 							}
-						}
-						break;
+							break;
 						}
 					default:
 						break;
@@ -225,14 +224,14 @@ void MemoryController::update() {
 		if (dataCyclesLeft == 0) {
 			//inform upper levels that a write is done
 			//if lastCommand is write but WriteCancel,then not return;
-			if(!WRITECANCEL){
+			if (!WRITECANCEL) {
 				if (parentMemorySystem->WriteDataDone != NULL) {
 					(*parentMemorySystem->WriteDataDone)(
 							parentMemorySystem->systemID,
 							outgoingDataPacket->physicalAddress,
 							currentClockCycle);
-/*					PRINTN("Write Done ");
-					outgoingDataPacket->print();*/
+					/*					PRINTN("Write Done ");
+					 outgoingDataPacket->print();*/
 				}
 			}
 			(*ranks)[outgoingDataPacket->rank]->receiveFromBus(
@@ -299,59 +298,60 @@ void MemoryController::update() {
 	bool popqueue = false;
 	BusPacket *poppedWCPacket;
 //	if (WRITECANCEL) {
-		popWCQueue = cancelWrite.cancelwrite(&poppedWCPacket); //then we could know if the last write is canceled.
-		popqueue = popWCQueue;
-		poppedBusPacket = poppedWCPacket;
+	popWCQueue = cancelWrite.cancelwrite(&poppedWCPacket); //then we could know if the last write is canceled.
+	popqueue = popWCQueue;
+	poppedBusPacket = poppedWCPacket;
 //	} else {
 //		popqueue = commandQueue.pop(&poppedBusPacket);
 //	}
 	if (popqueue) {
-/*		psQueue.iniPredictTable(poppedBusPacket->rank, poppedBusPacket->bank,
-				poppedBusPacket->physicalAddress, poppedBusPacket->RIP);*/
+		/*		psQueue.iniPredictTable(poppedBusPacket->rank, poppedBusPacket->bank,
+		 poppedBusPacket->physicalAddress, poppedBusPacket->RIP);*/
 		unsigned rank = poppedBusPacket->rank;
 		unsigned bank = poppedBusPacket->bank;
-		if(WRITECANCEL){
-		if (poppedBusPacket->busPacketType == WRITE
-				|| poppedBusPacket->busPacketType == WRITE_P) { //requests from writequeue
-			if (parentMemorySystem->WriteDataDone != NULL) {
-				if (!cancelWrite.writepriority[rank][bank]) {
-					(*parentMemorySystem->WriteDataDone)(
-							parentMemorySystem->systemID,
+		if (WRITECANCEL) {
+			if (poppedBusPacket->busPacketType == WRITE
+					|| poppedBusPacket->busPacketType == WRITE_P) { //requests from writequeue
+				if (parentMemorySystem->WriteDataDone != NULL) {
+					if (!cancelWrite.writepriority[rank][bank]) {
+						(*parentMemorySystem->WriteDataDone)(
+								parentMemorySystem->systemID,
+								poppedBusPacket->physicalAddress,
+								currentClockCycle);
+					}
+					if ((cancelWrite.writepriority[rank][bank])
+							&& cancelWrite.ongoingWrite[rank][bank] != NULL
+							&& cancelWrite.ongoingWrite[rank][bank]->physicalAddress
+									!= poppedBusPacket->physicalAddress) {
+						//PRINT(
+						//		"clock "<<currentClockCycle<<" WRITE ACK writeP write ongoing is 0x"<<hex<<cancelWrite.ongoingWrite[rank][bank]->physicalAddress<<dec<<" then ongoing is "<<hex<<poppedBusPacket->physicalAddress<<dec);
+						(*parentMemorySystem->WriteDataDone)(
+								parentMemorySystem->systemID,
+								cancelWrite.ongoingWrite[rank][bank]->physicalAddress,
+								currentClockCycle);
+					}
+				}
+				if (cancelWrite.writepriority[rank][bank]) {
+					if (poppedBusPacket->busPacketType == WRITE) {
+						bankStates[rank][bank].stateChangeCountdown =
+								WRITE_TO_READ_DELAY_B;
+					}
+					cancelWrite.ongoingWrite[rank][bank] = new BusPacket(WRITE,
 							poppedBusPacket->physicalAddress,
-							currentClockCycle);
+							poppedBusPacket->column, poppedBusPacket->row,
+							poppedBusPacket->rank, poppedBusPacket->bank,
+							poppedBusPacket->dataPacket, dramsim_log,
+							poppedBusPacket->RIP);
 				}
-				if ((cancelWrite.writepriority[rank][bank])
-						&& cancelWrite.ongoingWrite[rank][bank] != NULL
-						&& cancelWrite.ongoingWrite[rank][bank]->physicalAddress
-								!= poppedBusPacket->physicalAddress) {
-					//PRINT(
-					//		"clock "<<currentClockCycle<<" WRITE ACK writeP write ongoing is 0x"<<hex<<cancelWrite.ongoingWrite[rank][bank]->physicalAddress<<dec<<" then ongoing is "<<hex<<poppedBusPacket->physicalAddress<<dec);
-					(*parentMemorySystem->WriteDataDone)(
-							parentMemorySystem->systemID,
-							cancelWrite.ongoingWrite[rank][bank]->physicalAddress,
-							currentClockCycle);
-				}
-			}
-			if (cancelWrite.writepriority[rank][bank]) {
-				if(poppedBusPacket->busPacketType==WRITE) {
-					bankStates[rank][bank].stateChangeCountdown =
-							WRITE_TO_READ_DELAY_B;
-				}
-				cancelWrite.ongoingWrite[rank][bank] = new BusPacket(WRITE,
-						poppedBusPacket->physicalAddress,
-						poppedBusPacket->column, poppedBusPacket->row,
-						poppedBusPacket->rank, poppedBusPacket->bank,
-						poppedBusPacket->dataPacket, dramsim_log,
-						poppedBusPacket->RIP);
 			}
 		}
-	}
 		if (poppedBusPacket->busPacketType == WRITE
 				|| poppedBusPacket->busPacketType == WRITE_P) {
 			BusPacket* bp = new BusPacket(DATA,
 					poppedBusPacket->physicalAddress, poppedBusPacket->column,
-					poppedBusPacket->row, rank, bank, poppedBusPacket->dataPacket,
-					dramsim_log, poppedBusPacket->RIP);
+					poppedBusPacket->row, rank, bank,
+					poppedBusPacket->dataPacket, dramsim_log,
+					poppedBusPacket->RIP);
 			writeDataToSend.push_back(bp);
 			writeDataCountdown.push_back(WL);
 		} else {
@@ -376,6 +376,9 @@ void MemoryController::update() {
 //		PRINTN("MC ("<<currentClockCycle<<")== ");
 //				poppedBusPacket->print();
 //				bankStates[rank][bank].print();
+		uint64_t newdata = poppedBusPacket->dataPacket->getData();
+		uint64_t oldata = poppedBusPacket->dataPacket->getoldData();
+		uint64_t writtendata = newdata ^ oldata;
 		switch (poppedBusPacket->busPacketType) {
 		case READ_P:
 		case READ:
@@ -446,12 +449,20 @@ void MemoryController::update() {
 				bankStates[rank][bank].stateChangeCountdown =
 						WRITE_TO_PRE_DELAY;
 			} else if (poppedBusPacket->busPacketType == WRITE) {
-				/*bankStates[rank][bank].nextPrecharge = max(
-						currentClockCycle + WRITE_TO_PRE_DELAY,
-						bankStates[rank][bank].nextPrecharge);*/
-				bankStates[rank][bank].nextPrecharge = max(
-										currentClockCycle + cancelWrite.tokenRank->latency[SEQUENTIAL(rank,bank)],
-										bankStates[rank][bank].nextPrecharge);
+				//todo: if writtendata is zero , state not flip;
+				if (writtendata == 0) {
+					bankStates[rank][bank].nextPrecharge = max(
+							currentClockCycle,
+							bankStates[rank][bank].nextPrecharge);
+
+				} else {
+					bankStates[rank][bank].nextPrecharge =
+							max(
+									currentClockCycle
+											+ cancelWrite.tokenRank->tokenQueue[SEQUENTIAL(rank,bank)][cancelWrite.tokenRank->tokenQueue[SEQUENTIAL(rank,bank)].size()
+													- 1]->latency,
+									bankStates[rank][bank].nextPrecharge);
+				}
 				bankStates[rank][bank].lastCommand = WRITE;
 			}
 
@@ -460,9 +471,11 @@ void MemoryController::update() {
 				PRINT(" ++ Adding Write energy to total energy");
 			}
 			burstEnergy[rank] += (IDD4W - IDD3N) * BL / 2 * NUM_DEVICES;
-
-			writeEnergyperBank[SEQUENTIAL(rank,bank)] += cancelWrite.tokenRank->energy[SEQUENTIAL(rank,bank)];
-
+			if (writtendata != 0) {
+				writeEnergyperBank[SEQUENTIAL(rank,bank)] +=
+						+cancelWrite.tokenRank->tokenQueue[SEQUENTIAL(rank,bank)][cancelWrite.tokenRank->tokenQueue[SEQUENTIAL(rank,bank)].size()
+								- 1]->energy;
+			}
 			for (size_t i = 0; i < NUM_RANKS; i++) {
 				for (size_t j = 0; j < NUM_BANKS; j++) {
 					if (i != poppedBusPacket->rank) {
@@ -478,16 +491,21 @@ void MemoryController::update() {
 						bankStates[i][j].nextWrite = max(
 								currentClockCycle + max(BL / 2, tCCD),
 								bankStates[i][j].nextWrite);
-						/*bankStates[i][j].nextRead = max(
-								currentClockCycle + WRITE_TO_READ_DELAY_B,
-								bankStates[i][j].nextRead);*/
-						bankStates[i][j].nextRead = max(
-								currentClockCycle + cancelWrite.tokenRank->latency[SEQUENTIAL(rank,bank)],
-								bankStates[i][j].nextRead);
+						//TODO: if data is zero, state not added;
+						if (writtendata == 0) {
+							bankStates[i][j].nextRead = max(currentClockCycle,
+									bankStates[i][j].nextRead);
+						} else {
+							bankStates[i][j].nextRead =
+									max(
+											currentClockCycle
+													+ cancelWrite.tokenRank->tokenQueue[SEQUENTIAL(rank,bank)][cancelWrite.tokenRank->tokenQueue[SEQUENTIAL(rank,bank)].size()
+															- 1]->latency,
+											bankStates[i][j].nextRead);
+						}
 					}
 				}
 			}
-
 			//set read and write to nextActivate so the state table will prevent a read or write
 			//  being issued (in cq.isIssuable())before the bank state has been changed because of the
 			//  auto-precharge associated with this command
@@ -599,113 +617,115 @@ void MemoryController::update() {
 		//if we have room, break up the transaction into the appropriate commands
 		//and add them to the command queue
 		/*if (!WRITECANCEL) {
-			if (commandQueue.hasRoomFor(2, newTransactionRank,
-					newTransactionBank)) {
-				if (DEBUG_ADDR_MAP) {
-					PRINTN(
-							"== New Transaction - Mapping Address [0x" << hex << transaction->address << dec << "]");
-					if (transaction->transactionType == DATA_READ) {
-						PRINT(" (Read)");
-					} else {
-						PRINT(" (Write)");
-					}
-					PRINT("  Rank : " << newTransactionRank);
-					PRINT("  Bank : " << newTransactionBank);
-					PRINT("  Row  : " << newTransactionRow);
-					PRINT("  Col  : " << newTransactionColumn);
-				}
+		 if (commandQueue.hasRoomFor(2, newTransactionRank,
+		 newTransactionBank)) {
+		 if (DEBUG_ADDR_MAP) {
+		 PRINTN(
+		 "== New Transaction - Mapping Address [0x" << hex << transaction->address << dec << "]");
+		 if (transaction->transactionType == DATA_READ) {
+		 PRINT(" (Read)");
+		 } else {
+		 PRINT(" (Write)");
+		 }
+		 PRINT("  Rank : " << newTransactionRank);
+		 PRINT("  Bank : " << newTransactionBank);
+		 PRINT("  Row  : " << newTransactionRow);
+		 PRINT("  Col  : " << newTransactionColumn);
+		 }
 
-				//now that we know there is room in the command queue, we can remove from the transaction queue
+		 //now that we know there is room in the command queue, we can remove from the transaction queue
 
-				//create activate command to the row we just translated
-				BusPacket *ACTcommand = new BusPacket(ACTIVATE,
-						transaction->address, newTransactionColumn,
-						newTransactionRow, newTransactionRank,
-						newTransactionBank, 0, dramsim_log);
+		 //create activate command to the row we just translated
+		 BusPacket *ACTcommand = new BusPacket(ACTIVATE,
+		 transaction->address, newTransactionColumn,
+		 newTransactionRow, newTransactionRank,
+		 newTransactionBank, 0, dramsim_log);
 
-				//create read or write command and enqueue it
-				BusPacketType bpType = transaction->getBusPacketType();
-				BusPacket *command = new BusPacket(bpType, transaction->address,
-						newTransactionColumn, newTransactionRow,
-						newTransactionRank, newTransactionBank,
-						transaction->data, dramsim_log, transaction->RIP);
-				transactionQueue.erase(transactionQueue.begin() + i);
-				commandQueue.enqueue(ACTcommand);
-				if (transaction->transactionType == DATA_READ) {
-//					command->data=0;
-					pendingReadTransactions.push_back(transaction);
-				} else {
-					// just delete the transaction now that it's a buspacket
-					delete transaction;
-				}
-				commandQueue.enqueue(command);
-				 only allow one transaction to be scheduled per cycle -- this should
-				 * be a reasonable assumption considering how much logic would be
-				 * required to schedule multiple entries per cycle (parallel data
-				 * lines, switching logic, decision logic)
+		 //create read or write command and enqueue it
+		 BusPacketType bpType = transaction->getBusPacketType();
+		 BusPacket *command = new BusPacket(bpType, transaction->address,
+		 newTransactionColumn, newTransactionRow,
+		 newTransactionRank, newTransactionBank,
+		 transaction->data, dramsim_log, transaction->RIP);
+		 transactionQueue.erase(transactionQueue.begin() + i);
+		 commandQueue.enqueue(ACTcommand);
+		 if (transaction->transactionType == DATA_READ) {
+		 //					command->data=0;
+		 pendingReadTransactions.push_back(transaction);
+		 } else {
+		 // just delete the transaction now that it's a buspacket
+		 delete transaction;
+		 }
+		 commandQueue.enqueue(command);
+		 only allow one transaction to be scheduled per cycle -- this should
+		 * be a reasonable assumption considering how much logic would be
+		 * required to schedule multiple entries per cycle (parallel data
+		 * lines, switching logic, decision logic)
 
-				break;
-			} else // no room, do nothing this cycle
-			{
-				//PRINT( "== Warning - No room in command queue" << endl;
-			}
-		}*/
+		 break;
+		 } else // no room, do nothing this cycle
+		 {
+		 //PRINT( "== Warning - No room in command queue" << endl;
+		 }
+		 }*/
 
 		// If we have a read, save the transaction so when the data comes back
 		// in a bus packet, we can staple it back into a transaction and return it
 //		if (WRITECANCEL) {
-			bool added = false;
-			bool found = false;
-			BusPacketType bpType = transaction->getBusPacketType();
-			BusPacket *command = new BusPacket(bpType, transaction->address,
-					newTransactionColumn, newTransactionRow, newTransactionRank,
-					newTransactionBank, new DataPacket(transaction->get_newdata(),transaction->get_oldata()), dramsim_log,
-					transaction->RIP);
+		bool added = false;
+		bool found = false;
+		BusPacketType bpType = transaction->getBusPacketType();
+		BusPacket *command = new BusPacket(bpType, transaction->address,
+				newTransactionColumn, newTransactionRow, newTransactionRank,
+				newTransactionBank,
+				new DataPacket(transaction->get_newdata(),
+						transaction->get_oldata()), dramsim_log,
+				transaction->RIP);
 //			PRINTN("Input command: ");command->print();PRINTN("\n");
-			if (transaction->transactionType == DATA_READ) {
-				Transaction *trans = new Transaction(*transaction);
-				added = cancelWrite.addRequest(trans, command, found);
-				addedRdTrans++;
-				if (found) {
-					returnTransaction.push_back(trans);
-					totalReadsPerBank[SEQUENTIAL(
-							newTransactionRank, newTransactionBank)]++;
-				}
-				if (added) {
-					pendingReadTransactions.push_back(transaction);
-					transactionQueue.erase(transactionQueue.begin() + i);
-					break;
-				}
-			} else if (transaction->transactionType == DATA_WRITE) {
-				addedWrTrans++;
-				added = cancelWrite.addRequest(transaction, command, found);
-				if (found) {
-					totalTransactions++;
-					totalWritesPerBank[SEQUENTIAL(
-							newTransactionRank, newTransactionBank)]++;
-					if (parentMemorySystem->WriteDataDone != NULL) {
-						//PRINT(
-						//		"WRITE ACK same 0x"<<hex<<transaction->address<<dec);
-						(*parentMemorySystem->WriteDataDone)(
-								parentMemorySystem->systemID,
-								transaction->address, currentClockCycle);
+		if (transaction->transactionType == DATA_READ) {
+			Transaction *trans = new Transaction(*transaction);
+			added = cancelWrite.addRequest(trans, command, found);
+			addedRdTrans++;
+			if (found) {
+				returnTransaction.push_back(trans);
+				totalReadsPerBank[SEQUENTIAL(
+						newTransactionRank, newTransactionBank)]++;
+			}
+			if (added) {
+				pendingReadTransactions.push_back(transaction);
+				transactionQueue.erase(transactionQueue.begin() + i);
+				break;
+			}
+		} else if (transaction->transactionType == DATA_WRITE) {
+			addedWrTrans++;
+			added = cancelWrite.addRequest(transaction, command, found);
+			if (found) {
+				totalTransactions++;
+				totalWritesPerBank[SEQUENTIAL(
+						newTransactionRank, newTransactionBank)]++;
+				if (parentMemorySystem->WriteDataDone != NULL) {
+					//PRINT(
+					//		"WRITE ACK same 0x"<<hex<<transaction->address<<dec);
+					(*parentMemorySystem->WriteDataDone)(
+							parentMemorySystem->systemID, transaction->address,
+							currentClockCycle);
 
-					}
-				}
-				if (added) {
-					//PRINT("added Transaction Write "<<*transaction);
-					delete transaction;
-					transactionQueue.erase(transactionQueue.begin() + i);
-					break;
 				}
 			}
-			// just delete the transaction now that it's a buspacket
+			if (added) {
+				//PRINT("added Transaction Write "<<*transaction);
+				delete transaction;
+				transactionQueue.erase(transactionQueue.begin() + i);
+				break;
+			}
+		}
+		// just delete the transaction now that it's a buspacket
 
-			/* only allow one transaction to be scheduled per cycle -- this should
-			 * be a reasonable assumption considering how much logic would be
-			 * required to schedule multiple entries per cycle (parallel data
-			 * lines, switching logic, decision logic)
-			 */
+		/* only allow one transaction to be scheduled per cycle -- this should
+		 * be a reasonable assumption considering how much logic would be
+		 * required to schedule multiple entries per cycle (parallel data
+		 * lines, switching logic, decision logic)
+		 */
 
 //		}
 	}
@@ -967,9 +987,9 @@ void MemoryController::printStats(bool finalStats) {
 					(((double) totalReadsPerBank[SEQUENTIAL(i,j)]
 							* (double) bytesPerTransaction * 8))
 							* readEnergyperCell;
-/*			writeEnergyperBank[SEQUENTIAL(i,j)] =
-					((double) totalWritesPerBank[SEQUENTIAL(i,j)] * set_energy)
-							* (double) bytesPerTransaction * 8;*/
+			/*			writeEnergyperBank[SEQUENTIAL(i,j)] =
+			 ((double) totalWritesPerBank[SEQUENTIAL(i,j)] * set_energy)
+			 * (double) bytesPerTransaction * 8;*/
 			readEnergy[i] += readEnergyperBank[SEQUENTIAL(i,j)];
 			writeEnergy[i] += writeEnergyperBank[SEQUENTIAL(i,j)];
 		}
@@ -1008,9 +1028,9 @@ void MemoryController::printStats(bool finalStats) {
 					"        -Bandwidth / Latency  (Bank " <<j<<"): " <<bandwidth[SEQUENTIAL(r,j)] << " GB/s\t\t" <<averageLatency[SEQUENTIAL(r,j)] << " ns");
 
 		}
-/*		for (size_t b = 0; b < NUM_BANKS; b++) {
-			printAccesscount(r, b);
-		}*/
+		/*		for (size_t b = 0; b < NUM_BANKS; b++) {
+		 printAccesscount(r, b);
+		 }*/
 		// factor of 1000 at the end is to account for the fact that totalEnergy is accumulated in mJ since IDD values are given in mA
 		backgroundPower[r] = ((double) backgroundEnergy[r]
 				/ (double) (cyclesElapsed)) * Vdd / 1000.0;
@@ -1033,17 +1053,17 @@ void MemoryController::printStats(bool finalStats) {
 					burstPower[r], refreshPower[r], actprePower[r]);
 		}
 
-				PRINT(" == Power Data for Rank        " << r);
-		 PRINT("   Average Power (watts)     : " << averagePower[r]);
-		 PRINT("     -Read   (mwatts)     : " << readPower[r]);
-		 PRINT("     -Write  (mwatts)     : " << writePower[r]);
-		 PRINT("     -Background (watts)     : " << backgroundPower[r]);
-		 PRINT("     -Act/Pre    (watts)     : " << actprePower[r]);
-		 PRINT("     -Burst      (watts)     : " << burstPower[r]);
-		 PRINT("     -Refresh    (watts)     : " << refreshPower[r]);
+		PRINT(" == Power Data for Rank        " << r);
+		PRINT("   Average Power (watts)     : " << averagePower[r]);
+		PRINT("     -Read   (mwatts)     : " << readPower[r]);
+		PRINT("     -Write  (mwatts)     : " << writePower[r]);
+		PRINT("     -Background (watts)     : " << backgroundPower[r]);
+		PRINT("     -Act/Pre    (watts)     : " << actprePower[r]);
+		PRINT("     -Burst      (watts)     : " << burstPower[r]);
+		PRINT("     -Refresh    (watts)     : " << refreshPower[r]);
 
-		 PRINT("     -ReadEnergy   (pJ)     : " << readEnergy[r]);
-		 PRINT("     -WriteEnergy  (pJ)     : " << writeEnergy[r]);
+		PRINT("     -ReadEnergy   (pJ)     : " << readEnergy[r]);
+		PRINT("     -WriteEnergy  (pJ)     : " << writeEnergy[r]);
 		if (VIS_FILE_OUTPUT) {
 			//	cout << "c="<<myChannel<< " r="<<r<<"writing to csv out on cycle "<< currentClockCycle<<endl;
 			// write the vis file output
