@@ -44,7 +44,7 @@ public:
 	TokenEntry(unsigned currentClock, uint64_t physicaladdr, bool valid_,
 			DataCounts* datacounts,uint64_t latency_,double energy_) :
 			startCycle(currentClock), physicalAddress(physicaladdr), valid(
-					valid_),latency(latency),energy(energy_){
+					valid_),latency(latency_),energy(energy_){
 		dataCounts = new DataCounts();
 		requestToken = vector < uint64_t > (NUM_DEVICES, 0);
 		if (datacounts != NULL) {

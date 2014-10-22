@@ -55,7 +55,8 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 					transaction->set_data(wrqueue[i + 1]->dataPacket->getData(),
 							wrqueue[i + 1]->dataPacket->getoldData());
 				} else {
-					transaction->set_data(packet->dataPacket->getData(), packet->dataPacket->getoldData());
+					transaction->set_data(packet->dataPacket->getData(),
+							packet->dataPacket->getoldData());
 				}
 				found = true;
 				break;
@@ -140,9 +141,7 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 //				PRINTN(
 //						"issueRequest read empty clock["<<currentClockCycle<<"] ");
 //				request->print();
-				if (!tokenRank->powerAllowable(request)) {
-					return false;
-				}
+				tokenRank->powerAllowable(request);
 //				tokenRank->initial(request);
 			}
 
@@ -168,7 +167,6 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 				//if write then check the power token per chip. until writes for all chips are done
 				queue.erase(queue.begin() + i);
 			}
-
 
 			issuable = true;
 			break;
@@ -387,7 +385,7 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 													== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
 										//change to add a ACT to this write and PRE This bank
 										if (readqueue.empty()) {
-											found=true;
+											found = true;
 											if (currentClockCycle
 													>= bankStates[nextRankPRE][nextBankPRE].nextWrite) {
 												//												 if the bus packet i is an activate, and also the next packet i+1 is write,
@@ -402,39 +400,37 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 																writequeue[i]->dataPacket,
 																dramsim_log,
 																writequeue[i]->RIP);
-												if (tokenRank->powerAllowable(
-														*busPacket)) {
+												tokenRank->powerAllowable(
+														*busPacket);
 //												tokenRank->initial(*busPacket); //nolimit
-													if (writequeue[i]->busPacketType
-															== ACTIVATE
-															&& writequeue[i + 1]->row
-																	== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
-														// i is being returned, but i-1 is being thrown away, so must delete it here
-														delete (writequeue[i + 1]);
-														delete (writequeue[i]);
-														// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
-														writequeue.erase(
-																writequeue.begin()
-																		+ i,
-																writequeue.begin()
-																		+ i
-																		+ 2);
-													} else {
-														// there's no activate before this packet
-														//or just remove the one bus packet
-														writequeue.erase(
-																writequeue.begin()
-																		+ i);
-													}
+												if (writequeue[i]->busPacketType
+														== ACTIVATE
+														&& writequeue[i + 1]->row
+																== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
+													// i is being returned, but i-1 is being thrown away, so must delete it here
+													delete (writequeue[i + 1]);
+													delete (writequeue[i]);
+													// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
+													writequeue.erase(
+															writequeue.begin()
+																	+ i,
+															writequeue.begin()
+																	+ i + 2);
+												} else {
+													// there's no activate before this packet
+													//or just remove the one bus packet
+													writequeue.erase(
+															writequeue.begin()
+																	+ i);
+												}
 //												PRINTN(
 //														"readP read empty clock["<<currentClockCycle<<"] ");
 //												(*busPacket)->print();
-													return true;
-												}
-												delete (*busPacket);
+												return true;
+//												}
+//												delete (*busPacket);
 											}
-										}
-										else if (writequeue[i]->busPacketType
+										} else if (writequeue[i]->busPacketType
 												!= ACTIVATE) {
 											vector<BusPacket*>::iterator it =
 													writequeue.begin() + i;
@@ -455,8 +451,9 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 										break;
 									}
 								}
-								if (found!=true && currentClockCycle
-										>= bankStates[nextRankPRE][nextBankPRE].nextPrecharge) {
+								if (found != true
+										&& currentClockCycle
+												>= bankStates[nextRankPRE][nextBankPRE].nextPrecharge) {
 									sendingPRE = true;
 									*busPacket = new BusPacket(PRECHARGE, 0, 0,
 											0, nextRankPRE, nextBankPRE, NULL,
@@ -467,9 +464,9 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 									return true;
 								}
 								// read is empty
-							}//!found
-						}//writepriority false
-					}//bank not active
+							}											//!found
+						}								//writepriority false
+					}										//bank not active
 				} // queue is empty
 				writeQueue.nextRankAndBank(nextRankPRE, nextBankPRE);
 			} while (!(startingRank == nextRankPRE

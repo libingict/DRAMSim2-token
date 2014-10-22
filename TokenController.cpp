@@ -149,78 +149,23 @@ void TokenController::update() {
 		for (size_t b = 0; b < NUM_BANKS; b++) {
 			TokenEntry* tokenentry;
 			unsigned elapsedCycle = 0;
-			unsigned delta = 0;
-			unsigned bitsCount = 0;
 			for (size_t i = 0; i < tokenQueue[REQUESTID(r,b)].size(); i++) {
 				tokenentry = tokenQueue[REQUESTID(r,b)][i];
-				if (tokenentry->valid == true) {  //update the powerToken
-					elapsedCycle = currentClockCycle - tokenentry->startCycle;
-					delta = elapsedCycle - RESETLatency;
-					if ((delta != 0)
-							&& (delta != (unsigned) SETLatency)&& (delta!= 5*(unsigned)SETLatency)&& (delta!= 7*(unsigned)SETLatency)){
-							continue;
-						}
-					DataCounts* data;
-					data = tokenentry->dataCounts;
-					PRINTN(
-							"elapsedCycle["<<elapsedCycle<<"] tokenQueue r["<<r <<"] b["<<b<<"] i["<<i<<"] ");
-					for (unsigned d = 0; d < NUM_DEVICES; d++) {
-						if (data->setCounts[d] == 0 && data->resetCounts[d] == 0
-								&& data->partsetCounts[d] == 0
-								&& data->partresetCounts[d] == 0) {
-							continue;
-						}
-						PRINTN(
-								"chip["<<d<<"] requestToken["<<tokenentry->requestToken[d]<<"] tokenPool["<<tokenPool[d]<<"] ");
-						if (delta == 0) { //reclaim
-							tokenPool[d] = tokenPool[d]
-									+ (data->resetCounts[d]
-											+ data->partresetCounts[d]
-											+ data->setCounts[d]
-											+ data->partsetCounts[d])
-											* RESETToken;
-							data->resetCounts[d] = 0;
-							tokenPool[d] =
-									tokenPool[d]
-											- (data->partresetCounts[d]
-													+ data->setCounts[d]
-													+ data->partsetCounts[d])
-													* SETToken; //reallocated
-							//					PRINTN("delat=0; tokenPool["<<tokenPool[d]<<"] ");
-						} else if (delta == (unsigned) SETLatency) { //reclaim
-							tokenPool[d] = tokenPool[d]
-									+ (data->setCounts[d]) * SETToken;
-							data->setCounts[d] = 0;
-							//					PRINTN("delat=SETLatency; tokenPool["<<tokenPool[d]<<"] ");
-						} else if (delta == 5 * (unsigned) SETLatency) {
-							tokenPool[d] = tokenPool[d]
-									+ (data->partsetCounts[d]) * SETToken;
-							data->partsetCounts[d] = 0; //reallocated
-							//					PRINTN("delat=5*SETLatency; tokenPool["<<tokenPool[d]<<"] ");
-						} else if (delta == 7 * (unsigned) SETLatency) { //finish no reallocate
-							tokenPool[d] = tokenPool[d]
-									+ (data->partresetCounts[d]) * SETToken;
-							data->partresetCounts[d] = 0;
-							tokenentry->valid = false;
-							//					PRINTN("delat=7*SETLatency; tokenPool["<<tokenPool[d]<<"] ");
-						}
-						bitsCount = bitsCount + data->setCounts[d]
-								+ data->resetCounts[d] + data->partsetCounts[d]
-								+ data->partresetCounts[d];
-						//				PRINT("bitsCount["<<bitsCount<<"]");
-						PRINTN("after tokenPool["<< tokenPool[d]<<"] ");
-					}
-					PRINT(" ");
-					if (bitsCount == 0) {
-						//				PRINT("r["<<r <<"] b["<<b<<"] bitsCount["<<bitsCount<<"]");
-						tokenentry->valid = false;
-						delete (tokenQueue[REQUESTID(r,b)][i]);
-						tokenQueue[REQUESTID(r,b)].erase(
-								tokenQueue[REQUESTID(r,b)].begin() + i);
-					}
-				}
-			}
+				elapsedCycle = currentClockCycle - tokenentry->startCycle;
+				if (elapsedCycle == (unsigned) tokenentry->latency) {
 
+//					PRINTN(
+//							"elapsedCycle["<<elapsedCycle<<"] tokenQueue r["<<r <<"] b["<<b<<"] i["<<i<<"] ");
+
+//					PRINT(" ");
+					//				PRINT("r["<<r <<"] b["<<b<<"] bitsCount["<<bitsCount<<"]");
+//						tokenentry->valid = false;
+					delete (tokenQueue[REQUESTID(r,b)][i]);
+					tokenQueue[REQUESTID(r,b)].erase(
+							tokenQueue[REQUESTID(r,b)].begin() + i);
+				}
+//				}
+			}
 		}
 	}
 
@@ -232,8 +177,8 @@ bool TokenController::powerAllowable(BusPacket *buspacket) {
 	if (buspacket->busPacketType != WRITE) {
 		return true;
 	}
-	PRINTN("=== currentClock["<<currentClockCycle<<"] ");
-	buspacket->print();
+//	PRINTN("=== currentClock["<<currentClockCycle<<"] ");
+//	buspacket->print();
 //	//64bit data, from low to high mapped to chip 0-7
 	uint64_t oldata, newdata, writtenData;
 	newdata = buspacket->dataPacket->getData();
@@ -249,8 +194,7 @@ bool TokenController::powerAllowable(BusPacket *buspacket) {
 	TokenEntry* tokenentry;
 	for (size_t i = tokenQueue[REQUESTID(r,b)].size(); i != 0; i--) {
 		tokenentry = tokenQueue[REQUESTID(r,b)][i - 1];
-		if (tokenentry->physicalAddress == buspacket->physicalAddress
-				&& tokenentry->valid == false) {
+		if (tokenentry->physicalAddress == buspacket->physicalAddress) {
 			tokenQueue[REQUESTID(r,b)].push_back(
 					new TokenEntry(0, buspacket->physicalAddress, false,
 							tokenentry->dataCounts,tokenentry->latency,tokenentry->energy));
@@ -264,33 +208,33 @@ bool TokenController::powerAllowable(BusPacket *buspacket) {
 		}
 	}
 	if (!found) {
-		PRINT(
-				"tokenQueue size["<<tokenQueue[REQUESTID(r,b)].size()<<"] not found!");
+//		PRINT(
+//				"tokenQueue size["<<tokenQueue[REQUESTID(r,b)].size()<<"] not found!");
 		initial(buspacket);
 	}
 	tokenentry = tokenQueue[REQUESTID(r,b)][tokenQueue[REQUESTID(r,b)].size()
 			- 1];
 //	PRINTN((*tokenentry));
-	data = tokenentry->dataCounts;
-	for (unsigned d = 0; d < NUM_DEVICES; d++) {
-		tokenentry->requestToken[d] = (data->resetCounts[d]
-				+ data->partresetCounts[d] + data->setCounts[d]
-				+ data->partsetCounts[d]) * RESETToken;
-		if (tokenPool[d] < tokenentry->requestToken[d]) {
-			PRINT(
-					"TC false chip["<<d<<"] tokenPool["<<tokenPool[d]<<"] requestToken["<< tokenentry->requestToken[d]<<"] ");
-			return false;
-		}
-	}
-	PRINTN("TC true ");
-	for (unsigned d = 0; d < NUM_DEVICES; d++) {
-		tokenPool[d] = tokenPool[d] - tokenentry->requestToken[d];
-		PRINTN(
-				"chip["<<d<<"] tokenPool["<<tokenPool[d]<<"] requestToken["<<tokenentry->requestToken[d]<<"] ");
-	}
+//	data = tokenentry->dataCounts;
+//	for (unsigned d = 0; d < NUM_DEVICES; d++) {
+//		tokenentry->requestToken[d] = (data->resetCounts[d]
+//				+ data->partresetCounts[d] + data->setCounts[d]
+//				+ data->partsetCounts[d]) * RESETToken;
+//		if (tokenPool[d] < tokenentry->requestToken[d]) {
+//			PRINT(
+//					"TC false chip["<<d<<"] tokenPool["<<tokenPool[d]<<"] requestToken["<< tokenentry->requestToken[d]<<"] ");
+//			return false;
+//		}
+//	}
+//	PRINTN("TC true ");
+//	for (unsigned d = 0; d < NUM_DEVICES; d++) {
+////		tokenPool[d] = tokenPool[d] - tokenentry->requestToken[d];
+//		PRINTN(
+//				"chip["<<d<<"] tokenPool["<<tokenPool[d]<<"] requestToken["<<tokenentry->requestToken[d]<<"] ");
+//	}
 	tokenentry->startCycle = currentClockCycle;
-	tokenentry->valid = true;
-	PRINT("");
+//	tokenentry->valid = true;
+//	PRINT("");
 	return true;
 
 }
