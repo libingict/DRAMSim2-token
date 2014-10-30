@@ -42,19 +42,19 @@ public:
 	double energy;
 	TokenEntry();
 	TokenEntry(unsigned currentClock, uint64_t physicaladdr, bool valid_,
-			DataCounts* datacounts,uint64_t latency_,double energy_) :
+			DataCounts* datacounts, uint64_t latency_, double energy_) :
 			startCycle(currentClock), physicalAddress(physicaladdr), valid(
-					valid_),latency(latency_),energy(energy_){
+					valid_), latency(latency_), energy(energy_) {
 		dataCounts = new DataCounts();
 		requestToken = vector < uint64_t > (NUM_DEVICES, 0);
 		if (datacounts != NULL) {
 			for (size_t i = 0; i < NUM_DEVICES; i++) {
-			dataCounts->resetCounts[i]=datacounts->resetCounts[i];
-			dataCounts->setCounts[i]=datacounts->setCounts[i];
-			dataCounts->partresetCounts[i]=datacounts->partresetCounts[i];
-			dataCounts->partsetCounts[i]=datacounts->partsetCounts[i];
+				dataCounts->resetCounts[i] = datacounts->resetCounts[i];
+				dataCounts->setCounts[i] = datacounts->setCounts[i];
+				dataCounts->partresetCounts[i] = datacounts->partresetCounts[i];
+				dataCounts->partsetCounts[i] = datacounts->partsetCounts[i];
+			}
 		}
-	}
 //	friend ostream &operator<<(ostream &os, const TokenEntry &t) {
 //		os << "Token [0x" << hex << t.physicalAddress << "] startCycle" << dec << t.startCycle << "] latency[" << t.latency<< "] energy[" << t.energy <<"] ";
 //		for (size_t i = 0; i < NUM_DEVICES; i++) {
@@ -63,17 +63,19 @@ public:
 //		os<<endl;
 //		return os;
 //	}
-/*		~TokenEntry()
-		{
-			if (dataCounts != NULL)
-				delete dataCounts;
-		}*/
-}
+		/*		~TokenEntry()
+		 {
+		 if (dataCounts != NULL)
+		 delete dataCounts;
+		 }*/
+	}
 };
 class TokenController: public SimulatorObject {
 private:
 //	vector<bool> existed;	//per bank
 	ostream &dramsim_log;
+	void updateReclaim(TokenEntry* tokenEntry);
+	void updateReallocate(TokenEntry* tokenEntry);
 
 public:
 	TokenController(ostream &dramsim_log_);
@@ -81,8 +83,8 @@ public:
 	void print();
 	vector<vector<uint64_t> > latency;
 	vector<vector<double> > energy;
-	vector<uint64_t> tokenPool;		//per chip
-	vector<DataCounts*>  dataCounts;	//per chip
+	vector<double> tokenPool;		//per chip
+	vector<DataCounts*> dataCounts;	//per chip
 	vector<vector<TokenEntry*> > tokenQueue;
 //	void set_RankBank(unsigned rankid_,unsigned bankid_){
 //		rank=rankid_;
@@ -93,6 +95,7 @@ public:
 	bool powerAllowable(BusPacket *buspacket);
 	virtual ~TokenController();
 	void update();
+	void new_update(); //SET scheme;
 
 };
 }

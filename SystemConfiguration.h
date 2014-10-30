@@ -39,6 +39,7 @@
 #include <string>
 #include <cstdlib>
 #include <stdint.h>
+#include <math.h>
 #include "PrintMacros.h"
 
 #ifdef __APPLE__
@@ -120,7 +121,7 @@ extern unsigned NUM_DEVICES;
 #define WRITE_TO_READ_DELAY_R (WL+BL/2+tRTRS-RL) //interrank
 
 #define RESETLatency (WL+BL/2+150/tCK)
-#define SETLatency (WL+BL/2+250/tCK)
+#define SETLatency ceil((WL+BL/2+250/tCK))
 #define RESETToken 2
 #define SETToken 1
 

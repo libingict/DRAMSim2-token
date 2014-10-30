@@ -141,7 +141,9 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 //				PRINTN(
 //						"issueRequest read empty clock["<<currentClockCycle<<"] ");
 //				request->print();
-				tokenRank->powerAllowable(request);
+				if(!tokenRank->powerAllowable(request)){
+					return false;
+				}
 //				tokenRank->initial(request);
 			}
 
@@ -400,8 +402,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 																writequeue[i]->dataPacket,
 																dramsim_log,
 																writequeue[i]->RIP);
-												tokenRank->powerAllowable(
-														*busPacket);
+												if(tokenRank->powerAllowable(
+														*busPacket)){
 //												tokenRank->initial(*busPacket); //nolimit
 												if (writequeue[i]->busPacketType
 														== ACTIVATE
@@ -427,8 +429,8 @@ bool CancelWrite::cancelwrite(BusPacket **busPacket) {
 //														"readP read empty clock["<<currentClockCycle<<"] ");
 //												(*busPacket)->print();
 												return true;
-//												}
-//												delete (*busPacket);
+												}
+												delete (*busPacket);
 											}
 										} else if (writequeue[i]->busPacketType
 												!= ACTIVATE) {
