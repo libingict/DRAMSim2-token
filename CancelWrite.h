@@ -23,18 +23,19 @@ public:
 			vector<Rank *> *&ranks);
 	virtual ~CancelWrite();
 	vector<vector<BankState> > &bankStates;
-	CommandQueue writeQueue;
 	CommandQueue readQueue;
+	vector<vector<TokenEntry*> > writeQueue;
 	vector<Rank*> *&ranks;
 	bool addRequest(Transaction *transaction, BusPacket *buspacket,
 			bool &found);
 
 //	BusPacket* returnReadTransaction(BusPacket* readPacket,
 //			CommandQueue& cmdqueue);
-	bool cancelwrite(BusPacket **busPacket);
-	bool issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
-			CommandQueue &requestQueue);
-	void issueWC(unsigned r, unsigned b);
+	bool issue(BusPacket **busPacket);
+	bool issueRead(unsigned r, unsigned b, BusPacket *&busPacket);
+	bool issueWrite_A1(unsigned r, unsigned b, BusPacket *&busPacket);
+	bool issueWrite_A2(unsigned r, unsigned b, BusPacket *&busPacket);
+	bool writeCancel(unsigned r, unsigned b, BusPacket *&busPacket);
 	void update();
 	bool isEmpty(unsigned rank);
 //	void getToken(BusPacket *buspacket);
@@ -43,6 +44,7 @@ public:
 	vector<vector<bool> > writepriority;
 	vector<vector<bool> > writecancel;
 	TokenController* tokenRank;
+	vector < uint64_t > zerowrite; //record the zero write, 记录修改data为零的请求。
 
 	unsigned nextRank;
 	unsigned nextBank;

@@ -78,11 +78,45 @@ void BankState::print()
 	{
 		PRINT("    State : Power Down" );
 	}
+	else if (currentBankState == Precharging)
+	{
+		PRINT("    State : Precharging" );
+	}
+	switch(lastCommand){
+	case READ:
+		PRINT("   lastcmd: READ" );
+		break;
+	case WRITE:
+		PRINT("   lastcmd: WRITE" );
+		break;
+	case ACTIVATE:
+		PRINT("   lastcmd: ACTIVATE" );
+		break;
+	case PREACTWR:
+		PRINT("   lastcmd: PREACTWR" );
+		break;
+	case ACTWR:
+		PRINT("   lastcmd: ACTWR" );
+		break;
+	case PRECHARGE:
+		PRINT("   lastcmd: PRECHARGE" );
+		break;
+	case READ_PREHIT:
+		PRINT("   lastcmd: READ_PREHIT" );
+		break;
+	case READ_PREMISS:
+		PRINT("   lastcmd: READ_PREMISS" );
+		break;
+
+	}
 
 	PRINT("    OpenRowAddress : " << openRowAddress );
+	PRINT("    stateCountdown : " << stateChangeCountdown );
 	PRINT("    nextRead       : " << nextRead );
 	PRINT("    nextWrite      : " << nextWrite );
 	PRINT("    nextActivate   : " << nextActivate );
 	PRINT("    nextPrecharge  : " << nextPrecharge );
 	PRINT("    nextPowerUp    : " << nextPowerUp );
+
+
 }

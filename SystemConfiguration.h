@@ -120,6 +120,7 @@ extern unsigned NUM_DEVICES;
 #define WRITE_TO_READ_DELAY_B (WL+BL/2+tWTR) //interbank
 #define WRITE_TO_READ_DELAY_R (WL+BL/2+tRTRS-RL) //interrank
 
+
 #define RESETLatency (WL+BL/2+150/tCK)
 #define SETLatency ceil((WL+BL/2+250/tCK))
 #define RESETToken 2

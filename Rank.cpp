@@ -158,37 +158,74 @@ void Rank::receiveFromBus(BusPacket *packet) {
 		readReturnPacket.push_back(packet);
 		readReturnCountdown.push_back(RL);
 		break;
-	case WRITE:
-		//make sure a write is allowed
-		if (bankStates[packet->bank].currentBankState != RowActive
-				|| currentClockCycle < bankStates[packet->bank].nextWrite
-				|| packet->row != bankStates[packet->bank].openRowAddress) {
-			ERROR(
-					"== Error - Rank " << id << " received a WRITE when not allowed");
-			bankStates[packet->bank].print();
-			exit(0);
+	case READ_PREHIT:
+		bankStates[packet->bank].lastCommand = READ;
+		bankStates[packet->bank].openRowAddress = packet->row;
+		bankStates[packet->bank].nextPrecharge = currentClockCycle
+				+ READ_TO_PRE_DELAY + tWTR;
+		for (size_t i = 0; i < NUM_BANKS; i++) {
+			bankStates[i].nextRead = currentClockCycle + max(BL / 2, tCCD)+ tWTR;
+			bankStates[i].nextWrite = currentClockCycle + READ_TO_WRITE_DELAY+ tWTR;
 		}
+		readReturnPacket.push_back(packet);
+		readReturnCountdown.push_back(RL);
+		break;
+	case READ_PREMISS:
+		bankStates[packet->bank].lastCommand = READ;
+		bankStates[packet->bank].openRowAddress = packet->row;
+		bankStates[packet->bank].nextPrecharge = currentClockCycle
+				+ READ_TO_PRE_DELAY + tWTR + tRP + tRAS;
+		for (size_t i = 0; i < NUM_BANKS; i++) {
+			bankStates[i].nextRead = currentClockCycle + max(BL / 2, tCCD)+ tWTR + tRP + tRAS;
+			bankStates[i].nextWrite =currentClockCycle + READ_TO_WRITE_DELAY+ tWTR + tRP + tRAS;
+		}
+		readReturnPacket.push_back(packet);
+		readReturnCountdown.push_back(RL);
+		break;
+	case WRITE:
+	case ACTWR:
+	case PREACTWR:
+		//make sure a write is allowed
+//		if (bankStates[packet->bank].currentBankState != RowActive
+//				|| currentClockCycle < bankStates[packet->bank].nextWrite
+//				|| packet->row != bankStates[packet->bank].openRowAddress) {
+//			ERROR(
+//					"== Error - Rank " << id << " received a WRITE when not allowed");
+//			bankStates[packet->bank].print();
+//			exit(0);
+//		}
 		//update state table
 		bankStates[packet->bank].lastCommand = WRITE;
-//			bankStates[packet->bank].nextPrecharge = max(
-//					bankStates[packet->bank].nextPrecharge,
-//					currentClockCycle + WRITE_TO_PRE_DELAY);
-			bankStates[packet->bank].nextPrecharge = max(
-			bankStates[packet->bank].nextPrecharge, currentClockCycle);
+		bankStates[packet->bank].nextPrecharge = max(
+				bankStates[packet->bank].nextPrecharge,
+				currentClockCycle + packet->latency);
+		bankStates[packet->bank].nextRead = max(
+				bankStates[packet->bank].nextRead,
+				currentClockCycle + packet->latency + tWTR);
+		bankStates[packet->bank].nextWrite = max(
+				bankStates[packet->bank].nextWrite,
+				currentClockCycle + packet->latency);
 		for (size_t i = 0; i < NUM_BANKS; i++) {
 //				bankStates[i].nextRead = max(bankStates[i].nextRead,
 //						currentClockCycle + WRITE_TO_READ_DELAY_B);
+			if (i != packet->bank) {
 				bankStates[i].nextRead = max(bankStates[i].nextRead,
-						currentClockCycle);
-			bankStates[i].nextWrite = max(bankStates[i].nextWrite,
-					currentClockCycle + max(BL / 2, tCCD));
+						currentClockCycle + tWTR);
+				bankStates[i].nextWrite = max(bankStates[i].nextWrite,
+						currentClockCycle + max(BL / 2, tCCD));
+			}
 		}
 		//take note of where data is going when it arrives
 		incomingWriteBank = packet->bank;
 		incomingWriteRow = packet->row;
 		incomingWriteColumn = packet->column;
+		bankStates[packet->bank].openRowAddress = packet->row;
+		bankStates[packet->bank].currentBankState = RowActive;
 		delete (packet);
 		break;
+		/*	case ACTWR:
+		 case PREACTWR:
+		 break;*/
 	case WRITE_P:
 		//make sure a write is allowed
 		if (bankStates[packet->bank].currentBankState != RowActive

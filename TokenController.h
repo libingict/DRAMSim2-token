@@ -32,20 +32,26 @@ public:
 	}
 };
 class TokenEntry {
+	ostream &dramsim_log;
 public:
 	unsigned startCycle;
-	uint64_t physicalAddress;
-	bool valid;
-	DataCounts* dataCounts;	//per chip
-	vector<uint64_t> requestToken;
-	uint64_t latency;
-	double energy;
+//	uint64_t physicalAddress;
+	bool valid;						//写请求是否正在执行
+	bool done;						//写请求是否完成
+	DataCounts* dataCounts;			//per chip上的数据分布
+	BusPacket* packet;
+	vector<uint64_t> requestToken;	//写请求所需的power token,迭代完成时更新
+	uint64_t latency;				//写请求的延迟
+	double energy;					//写请求消耗的能量
 	TokenEntry();
-	TokenEntry(unsigned currentClock, uint64_t physicaladdr, bool valid_,
-			DataCounts* datacounts, uint64_t latency_, double energy_) :
-			startCycle(currentClock), physicalAddress(physicaladdr), valid(
-					valid_), latency(latency_), energy(energy_) {
+	TokenEntry(unsigned startCycle_, BusPacket* packet_, bool valid_,bool done_,
+			DataCounts* datacounts, uint64_t latency_, double energy_,vector<uint64_t> token_, ostream &dramsim_log_) :
+			startCycle(startCycle_), valid(valid_), done(done_),latency(latency_), energy(
+					energy_), dramsim_log(dramsim_log_){
 		dataCounts = new DataCounts();
+		packet = new BusPacket(packet_->busPacketType, packet_->physicalAddress,
+				packet_->column, packet_->row, packet_->rank, packet_->bank,
+				packet_->dataPacket, dramsim_log, packet_->RIP,latency,energy);
 		requestToken = vector < uint64_t > (NUM_DEVICES, 0);
 		if (datacounts != NULL) {
 			for (size_t i = 0; i < NUM_DEVICES; i++) {
@@ -53,6 +59,7 @@ public:
 				dataCounts->setCounts[i] = datacounts->setCounts[i];
 				dataCounts->partresetCounts[i] = datacounts->partresetCounts[i];
 				dataCounts->partsetCounts[i] = datacounts->partsetCounts[i];
+				requestToken[i]=token_[i];
 			}
 		}
 //	friend ostream &operator<<(ostream &os, const TokenEntry &t) {
@@ -76,26 +83,33 @@ private:
 	ostream &dramsim_log;
 	void updateReclaim(TokenEntry* tokenEntry);
 	void updateReallocate(TokenEntry* tokenEntry);
-
+	unsigned ratio;
 public:
-	TokenController(ostream &dramsim_log_);
-	void initial(BusPacket *bspacket);
+	TokenController(vector<vector<TokenEntry*> > &writequeue,
+			ostream &dramsim_log_);
+	bool addwriteRequest(vector<TokenEntry*>& writeBank, BusPacket *bspacket,bool &found);
 	void print();
 	vector<vector<uint64_t> > latency;
 	vector<vector<double> > energy;
 	vector<double> tokenPool;		//per chip
 	vector<DataCounts*> dataCounts;	//per chip
-	vector<vector<TokenEntry*> > tokenQueue;
+	vector<vector<TokenEntry*> > &tokenQueue;
 //	void set_RankBank(unsigned rankid_,unsigned bankid_){
 //		rank=rankid_;
 //		bank=bankid_;
 //	}
 
 	unsigned getiterNumber(unsigned datalevel);
-	bool powerAllowable(BusPacket *buspacket);
+	bool issueWrite(BusPacket *buspacket);
+	bool powerAllowable(TokenEntry*& writerequest);
 	virtual ~TokenController();
 	void update();
-	void new_update(); //SET scheme;
+	void update_Naive();
+	void update_FPB();
+	void update_SPA(); //SET scheme;
+	bool release(size_t rank, size_t bank, uint64_t &addr);
+
+//	bool release(unsigned rank, unsigned bank,); //delete the finished write
 
 };
 }

@@ -44,7 +44,6 @@
 #include "BankState.h"
 #include "Rank.h"
 #include "CSVWriter.h"
-#include "PartialSETQueue.h"
 #include "CancelWrite.h"
 #include "RipAccesscount.h"
 #include <map>
@@ -67,6 +66,7 @@ public:
 	void receiveFromBus(BusPacket *bpacket);
 	void attachRanks(vector<Rank *> *ranks);
 	void update();
+	void updateWC();
 	void updatePSQueue();
 	void printStats(bool finalStats = false);
 	void resetStats();
@@ -84,8 +84,7 @@ private:
 	MemorySystem *parentMemorySystem;
 
 	CommandQueue commandQueue;
-	CancelWrite cancelWrite;		//cancelWrite
-	PartialSETQueue psQueue;
+	CancelWrite cancelwriteQueue;		//cancelWrite
 	BusPacket *poppedBusPacket;
 	vector<unsigned> refreshCountdown;
 	vector<BusPacket *> writeDataToSend;

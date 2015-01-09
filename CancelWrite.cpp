@@ -10,14 +10,14 @@
 #include <time.h>
 #include <math.h>
 using namespace DRAMSim;
-
+#define REQUESTID(rank,bank) (rank*NUM_BANKS)+bank
 CancelWrite::CancelWrite(vector<vector<BankState> > &states,
 		ostream &dramsim_log_, vector<Rank *> *&ranks_) :
-		bankStates(states), writeQueue(states, dramsim_log_), readQueue(states,
-				dramsim_log_), ranks(ranks_), writeQueueDepth(CMD_QUEUE_DEPTH), nextRank(
-				0), nextBank(0), nextRankPRE(0), nextBankPRE(0), dramsim_log(
-				dramsim_log_) {
+		bankStates(states), readQueue(states, dramsim_log_), ranks(ranks_), writeQueueDepth(
+				CMD_QUEUE_DEPTH), nextRank(0), nextBank(0), nextRankPRE(0), nextBankPRE(
+				0), dramsim_log(dramsim_log_) {
 	currentClockCycle = 0;
+
 	writecancel = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
 	coutcanceledwrite = vector < vector<uint64_t>
@@ -26,7 +26,10 @@ CancelWrite::CancelWrite(vector<vector<BankState> > &states,
 			> (NUM_RANKS, vector<BusPacket *>(NUM_BANKS, NULL));
 	writepriority = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
-	tokenRank = new TokenController(dramsim_log_);
+	writeQueue = vector < vector<TokenEntry*>
+			> (REQUESTID(NUM_RANKS,NUM_BANKS), vector<TokenEntry*>(0, NULL)); //2D
+	tokenRank = new TokenController(writeQueue, dramsim_log_);
+	zerowrite = vector < uint64_t > (REQUESTID(NUM_RANKS,NUM_BANKS), 0);
 	//64bit data, from low to high mapped to chip 0-7
 
 }
@@ -41,22 +44,22 @@ CancelWrite::~CancelWrite() {
 bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 		bool &found) {
 	if (transaction->transactionType == DATA_READ) {
-		vector<BusPacket*> &wrqueue = writeQueue.getCommandQueue(
-				buspacket->rank, buspacket->bank);
-		//check the partial queue at the same time
-		for (unsigned i = 0; i < wrqueue.size(); i++) {
-			BusPacket *packet = wrqueue[i];
-			if (packet->physicalAddress == transaction->address) { //if write queue has the same address, then the read request can be returned
+		vector<TokenEntry*> &wrbank =
+				writeQueue[REQUESTID(buspacket->rank, buspacket->bank)];
+		for (unsigned i = 0; i < wrbank.size(); i++) {
+			BusPacket *bspacket = wrbank[i]->packet;
+			if (bspacket->physicalAddress == transaction->address) { //if write queue has the same address, then the read request can be returned
 				transaction->transactionType = RETURN_DATA; //MC got the returned data from write queue.
-				if (wrqueue[i]->busPacketType == ACTIVATE && wrqueue.size() > 1
-						&& i < wrqueue.size() - 1
-						&& wrqueue[i + 1]->physicalAddress
-								== packet->physicalAddress) {
-					transaction->set_data(wrqueue[i + 1]->dataPacket->getData(),
-							wrqueue[i + 1]->dataPacket->getoldData());
+				if (bspacket->busPacketType == ACTIVATE && wrbank.size() > 1
+						&& i < wrbank.size() - 1
+						&& wrbank[i + 1]->packet->physicalAddress
+								== buspacket->physicalAddress) {
+					transaction->set_data(
+							wrbank[i + 1]->packet->dataPacket->getData(),
+							wrbank[i + 1]->packet->dataPacket->getoldData());
 				} else {
-					transaction->set_data(packet->dataPacket->getData(),
-							packet->dataPacket->getoldData());
+					transaction->set_data(bspacket->dataPacket->getData(),
+							bspacket->dataPacket->getoldData());
 				}
 				found = true;
 				break;
@@ -81,47 +84,19 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 			delete buspacket;
 			return false;
 		}
-	} else if (transaction->transactionType == DATA_WRITE) {
-		vector<BusPacket*> &queue = writeQueue.getCommandQueue(buspacket->rank,
-				buspacket->bank);
-		for (unsigned i = 0; i < queue.size(); i++) {
-			BusPacket *packet = queue[i];
-			if (packet->physicalAddress == transaction->address) { //if the write queue has the same address, then the old write can be evicted, updated the newest data.
-				found = true;
-				if (queue[i]->busPacketType == ACTIVATE && queue.size() > 1
-						&& i < queue.size() - 1
-						&& queue[i + 1]->physicalAddress
-								== packet->physicalAddress) { // the write request is paired
-					queue[i]->dataPacket->setData(transaction->get_newdata(),
-							transaction->get_oldata());
-					queue[i + 1]->dataPacket->setData(
-							transaction->get_newdata(),
-							transaction->get_oldata());
-					// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
-				} else {
-					//the activated has popped.
-					queue[i]->dataPacket->setData(transaction->get_newdata(),
-							transaction->get_oldata());
-				}
-				break;
-			}
+	} else if (transaction->transactionType == DATA_WRITE) { //order the request according to the power
+		//update the tokenqueue
+		uint64_t writtendata = buspacket->dataPacket->getData()
+				^ buspacket->dataPacket->getoldData();
+		bool add = false;
+		if (writtendata == 0) {
+			zerowrite[REQUESTID(buspacket->rank, buspacket->bank)]++;
 		}
-		if (found) {
+		add = tokenRank->addwriteRequest(
+				writeQueue[REQUESTID(buspacket->rank, buspacket->bank)],
+				buspacket, found);
+		if (add) {
 //			writerequest[buspacket->rank][buspacket->bank]++;
-			return true;
-		}
-		//every bank pending one request.
-		if (writeQueue.hasRoomFor(2, buspacket->rank, buspacket->bank)) {
-			writeQueue.enqueue(
-					new BusPacket(ACTIVATE, buspacket->physicalAddress,
-							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->dataPacket, dramsim_log,
-							buspacket->RIP));
-			writeQueue.enqueue(
-					new BusPacket(WRITE, buspacket->physicalAddress,
-							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->dataPacket, dramsim_log,
-							buspacket->RIP));
 			return true;
 		} else {
 			delete buspacket;
@@ -130,28 +105,33 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 	}
 }
 
-bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
-		CommandQueue &requestQueue) {
+bool CancelWrite::issueRead(unsigned r, unsigned b, BusPacket *&busPacket) {
 	bool issuable = false;
-	vector<BusPacket *> &queue = requestQueue.getCommandQueue(r, b);
+	bool found=false;
+	vector<BusPacket *> &queue = readQueue.getCommandQueue(r, b);
 	for (unsigned i = 0; i < queue.size(); i++) {
 		BusPacket *request = queue[i];
-		if (requestQueue.isIssuable(request)) { //check for the timing constraint
-			if (request->busPacketType == WRITE) {
-//				PRINTN(
-//						"issueRequest read empty clock["<<currentClockCycle<<"] ");
-//				request->print();
-				if(!tokenRank->powerAllowable(request)){
-					return false;
-				}
-//				tokenRank->initial(request);
-			}
-
+		if (queue[i]->row == bankStates[r][b].openRowAddress) {
+			found = true;
+		}
+		//TODO: check timing and power constraint, the request in the queue is ordered according to the required power
+		if (readQueue.isIssuable(request)) { //check for the timing constraint
+			/*			if (request->busPacketType == WRITE) {
+			 //				PRINTN(
+			 //						"issueRequest read empty clock["<<currentClockCycle<<"] ");
+			 //				request->print();
+			 if(!tokenRank->powerAllowable(request)){
+			 return false;
+			 }
+			 //				tokenRank->initial(request);
+			 }*/
+//			PRINTN("issueRequest readqueue clock "<<currentClockCycle<<" ");
 			busPacket = new BusPacket(request->busPacketType,
 					request->physicalAddress, request->column, request->row,
 					request->rank, request->bank, request->dataPacket,
 					dramsim_log, request->RIP);
-
+//			PRINTN(" busPacket ");
+//			busPacket->print();
 			/*
 			 if the bus packet before is an activate, that is the act that was
 			 paired with the column access we are removing, so we have to remove
@@ -169,324 +149,361 @@ bool CancelWrite::issueRequest(unsigned r, unsigned b, BusPacket *&busPacket,
 				//if write then check the power token per chip. until writes for all chips are done
 				queue.erase(queue.begin() + i);
 			}
-
 			issuable = true;
 			break;
 		}
 	}
+	if (issuable == false && found==false) {
+		if (bankStates[r][b].currentBankState == RowActive
+				&& currentClockCycle >= bankStates[r][b].nextPrecharge) {
+			issuable = true;
+			busPacket = new BusPacket(PRECHARGE, 0, 0, 0, r, b, NULL,
+					dramsim_log);
+//			PRINT("issueRead set PRE r["<<r<<"]b["<<b<<"] row["<<bankStates[r][b].openRowAddress<<"] ");
+		}
+	}
 	return issuable;
 }
-void CancelWrite::issueWC(unsigned r, unsigned b) { //if there is waiting read request, issue the request.
-	bool issueRead = false;
-	vector<BusPacket *> &rdqueue = readQueue.getCommandQueue(r, b);
+
+bool CancelWrite::issueWrite_A1(unsigned r, unsigned b, BusPacket *&busPacket) { //how to issue write
+	TokenEntry* request;		//功耗优先，如果功耗可以，那么就发射该请求。
+	bool issuable = false;
+	//check the power allowable
+	//power priority
+	for (unsigned i = 0; i < writeQueue[REQUESTID(r,b)].size(); i++) {
+		request = writeQueue[REQUESTID(r,b)][i];
+		if(request->valid!=true && request->done!=true){
+			break;
+		}
+	}
+	BusPacket *buspacket = request->packet;
+//		PRINT("currentClock is "<<currentClockCycle);
+//		bankStates[r][b].print();
+//		if (currentClockCycle >= bankStates[r][b].nextPrecharge) {
 	if (bankStates[r][b].currentBankState == RowActive
-			&& bankStates[r][b].lastCommand == WRITE) {
-		//1.push_back the paired of Write and ACTIVATE to the writequeue.
-		for (unsigned i = 0; i < rdqueue.size(); i++) {
-			BusPacket *packet = rdqueue[i];
-			if (bankStates[r][b].openRowAddress == packet->row) {
-				//modify all timing for all Bank
-				/*						bankStates[r][b].nextRead = currentClockCycle;
-				 //2.modify the cycle of Rank;
-				 //modify all timing for all Bank in Rank
-				 (*ranks)[r]->bankStates[b].nextRead = currentClockCycle;*/
-				issueRead = readQueue.isIssuable(packet);
-				if (!issueRead
-						&& currentClockCycle < bankStates[r][b].nextRead) { //issue Write Request
-					unsigned oldnextRead = bankStates[r][b].nextRead;
-					unsigned delta = oldnextRead - currentClockCycle;
-					if (ongoingWrite[r][b] != NULL
-							&& (delta > (0.75 * WRITE_TO_READ_DELAY_B))) {
-						//modify all timing for all Bank
-						bankStates[r][b].nextPrecharge -= delta;
-						bankStates[r][b].nextWrite -= delta;
-						bankStates[r][b].nextRead -= delta;
-						//2.modify the cycle of Rank;
-						(*ranks)[r]->bankStates[b].nextPrecharge -= delta;
-						(*ranks)[r]->bankStates[b].nextRead -= delta;
-						(*ranks)[r]->bankStates[b].nextWrite -= delta;
+			&& currentClockCycle >= bankStates[r][b].nextWrite) {	//row miss
+		if (tokenRank->powerAllowable(request)) {
+			busPacket = new BusPacket(PREACTWR, buspacket->physicalAddress,
+					buspacket->column, buspacket->row, buspacket->rank,
+					buspacket->bank, buspacket->dataPacket, dramsim_log,
+					buspacket->RIP, request->latency, request->energy);
+			if (buspacket->row != bankStates[r][b].openRowAddress) {
+//				PRINTN("Row miss ");
+				busPacket->busPacketType = PREACTWR;
+			} else {
+//				PRINTN("Row hit ");
+				busPacket->busPacketType = WRITE;
+			}
+			issuable = true;
+		}
+	} else if (bankStates[r][b].currentBankState == Idle
+			&& currentClockCycle >= bankStates[r][b].nextActivate) {		//空
+		if (tokenRank->powerAllowable(request)) {
+			busPacket = new BusPacket(ACTWR, buspacket->physicalAddress,
+					buspacket->column, buspacket->row, buspacket->rank,
+					buspacket->bank, buspacket->dataPacket, dramsim_log,
+					buspacket->RIP, request->latency, request->energy);
+//			PRINTN("Idle or Precharging ");
+			issuable = true;
+		}
+	}
+	if (issuable) {
+//		PRINTN("issueWrite_A1 ");
+//		busPacket->print();
+	}
+	return issuable;
+	//check the timing constraint
+}
+bool CancelWrite::issueWrite_A2(unsigned r, unsigned b, BusPacket *&busPacket) { //时序优先，必须时序满足，再检测功耗。
+//timing priority
+	TokenEntry *request;
+	BusPacket *buspacket;
+	bool found = false;
+	bool issuable = false;
+	if (currentClockCycle >= bankStates[r][b].nextWrite
+			&& bankStates[r][b].currentBankState == RowActive) {
+		for (unsigned i = 0; i < writeQueue[REQUESTID(r,b)].size(); i++) {
+			request = writeQueue[REQUESTID(r,b)][i];
+			if (request->valid != true && request->done != true) { //正在执行/待释放
+				buspacket = request->packet;
+				if (buspacket->row == bankStates[r][b].openRowAddress) {
+					//row hit
+					found = true;
+					if (tokenRank->powerAllowable(request)) { //power is not allowed
+						busPacket = new BusPacket(WRITE,
+								buspacket->physicalAddress, buspacket->column,
+								buspacket->row, buspacket->rank,
+								buspacket->bank, buspacket->dataPacket,
+								dramsim_log, buspacket->RIP, request->latency,
+								request->energy);	//写的延迟
+//						PRINTN(
+//								"clock "<<currentClockCycle<<"issueWrite_A2 row hit ");
+//						busPacket->print();
+						issuable = true;
+						return true;
+					} else {
+						return false;
 					}
+					break;
 				}
+			}
+		}
+	}
+	else if (bankStates[r][b].currentBankState == Idle
+			&& currentClockCycle >= bankStates[r][b].nextActivate) {		//空
+		for (unsigned i = 0; i < writeQueue[REQUESTID(r,b)].size(); i++) {
+			request = writeQueue[REQUESTID(r,b)][i];
+			if (request->valid != true && request->done != true) {
+				if (tokenRank->powerAllowable(request)) {	//power is allowed
+					buspacket = request->packet;
+					busPacket = new BusPacket(ACTWR, buspacket->physicalAddress,
+							buspacket->column, buspacket->row, buspacket->rank,
+							buspacket->bank, buspacket->dataPacket, dramsim_log,
+							buspacket->RIP, request->latency, request->energy);	//写的延迟
+//					PRINTN("clock "<<currentClockCycle<<"issueWrite_A2 Idle ");
+//					busPacket->print();
+//			issuable = true;
+					return true;
+				}
+			}
+		}
+	}
+	if (bankStates[r][b].currentBankState == RowActive
+				&& currentClockCycle >= bankStates[r][b].nextPrecharge) {
+			if (found == false) {
+			busPacket = new BusPacket(PRECHARGE, 0, 0, 0, r, b, NULL,
+					dramsim_log);
+//			PRINT(
+//					"clock "<<currentClockCycle<<"issueWrite_A2 set PRE r["<<r<<"]b["<<b<<"] row["<<bankStates[r][b].openRowAddress<<"] ");
+			vector<BusPacket *> &readqueue = readQueue.getCommandQueue(r, b);
+			for (unsigned i = 0; i < readqueue.size(); i++) {
+				//if there is something going to that bank and row, then we don't want to send a PRE
+				if (readqueue[i]->bank == b
+						&& readqueue[i]->row
+								== bankStates[r][b].openRowAddress) {
+					if (readqueue[i]->busPacketType != ACTIVATE) {
+						vector<BusPacket*>::iterator it = readqueue.begin() + i;
+						BusPacket *bpacket = new BusPacket(ACTIVATE,
+								readqueue[i]->physicalAddress,
+								readqueue[i]->column, readqueue[i]->row,
+								readqueue[i]->rank, readqueue[i]->bank, NULL,
+								dramsim_log, readqueue[i]->RIP);
+						readqueue.insert(it, bpacket);
+						//										PRINT(
+						//												"writeP, write no found, rollback act to read 0x" << hex << bpacket->physicalAddress <<dec<<" r["<<nextRankPRE<<"]b["<<nextBankPRE<<"] ");
+					}
+					break;
+				}
+			}
+			return true;
+		}
+		return false;
+	}
+}
+bool CancelWrite::writeCancel(unsigned r, unsigned b, BusPacket *&busPacket) { //if there is waiting read request, issue the request. write能否cancel，如果能，恢复现场？如果不能，什么都不做。
+	bool issueread = false;
+	bool found = false;
+	vector<BusPacket *> &rdqueue = readQueue.getCommandQueue(r, b);
+	vector<TokenEntry *> &writequeue = writeQueue[REQUESTID(r,b)];
+	//找到正在执行的请求，将该请求取消，恢复该TokenEntry的状态
+	//更新writeQueue，将该写请求插回到队列中
+	if (bankStates[r][b].currentBankState == RowActive
+			&& bankStates[r][b].lastCommand == WRITE) {		//正在进行write
+		for (size_t i = 0; i < writequeue.size(); i++) {	//pause the write
+			if (writequeue[i]->valid == true) {
+				writequeue[i]->valid = false;
+				writequeue[i]->startCycle = 0;
 				break;
 			}
 		}
 	}
-	return;
+	//更新bank的时序
+	//更改rank的时序，使得其能够接受这次读？
+//	if (bankStates[r][b].currentBankState == RowActive
+//			&& bankStates[r][b].lastCommand == WRITE) {		//正在进行write
+	//1.push_back the paired of Write and ACTIVATE to the writequeue.
+	for (unsigned i = 0; i < rdqueue.size(); i++) {			//查找需要发射的读请求
+		BusPacket *packet = rdqueue[i];
+		if (bankStates[r][b].openRowAddress == packet->row) {//如果命中，tWTR+tREAD
+			issueread = true;
+			found = true;
+			//modify all timing for all Bank
+			/*						bankStates[r][b].nextRead = currentClockCycle;
+			 //2.modify the cycle of Rank;
+			 //modify all timing for all Bank in Rank
+			 (*ranks)[r]->bankStates[b].nextRead = currentClockCycle;*/
+			busPacket = new BusPacket(READ_PREHIT, packet->physicalAddress,
+					packet->column, packet->row, packet->rank, packet->bank,
+					packet->dataPacket, dramsim_log, packet->RIP);
+			if (i > 0 && rdqueue[i - 1]->busPacketType == ACTIVATE) {
+				// i is being returned, but i-1 is being thrown away, so must delete it here
+				delete (rdqueue[i - 1]);
+				delete (rdqueue[i]);
+				// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
+				rdqueue.erase(rdqueue.begin() + i - 1, rdqueue.begin() + i + 1);
+			} else // there's no activate before this packet
+			{
+				//or just remove the one bus packet
+				//if write then check the power token per chip. until writes for all chips are done
+				delete (rdqueue[i]);
+				rdqueue.erase(rdqueue.begin() + i);
+			}
+
+			break;
+		}
+	}
+	if (found == false) {		//如果不命中，那么这次读所需的时间为tWTR+PRE+ACT+tREAD
+		issueread = true;
+		busPacket = new BusPacket(READ_PREMISS, rdqueue[0]->physicalAddress,
+				rdqueue[0]->column, rdqueue[0]->row, rdqueue[0]->rank,
+				rdqueue[0]->bank, rdqueue[0]->dataPacket, dramsim_log,
+				rdqueue[0]->RIP);
+		if (rdqueue.size() > 1 && rdqueue[0]->busPacketType == ACTIVATE
+				&& rdqueue[1]->busPacketType == READ
+				&& rdqueue[1]->row == rdqueue[0]->row) {
+			// i is being returned, but i-1 is being thrown away, so must delete it here
+			delete (rdqueue[0]);
+			delete (rdqueue[1]);
+			// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
+			rdqueue.erase(rdqueue.begin(), rdqueue.begin() + 1);
+		} else // there's no activate before this packet
+		{
+			//or just remove the one bus packet
+			//if write then check the power token per chip. until writes for all chips are done
+			delete (rdqueue[0]);
+			rdqueue.erase(rdqueue.begin());
+		}
+	}
+	//更新rank中bank的时序
+
+	return issueread;
 	//if idle nothing to do , no write block the read
 }
-bool CancelWrite::cancelwrite(BusPacket **busPacket) {
+bool CancelWrite::issue(BusPacket **busPacket) {
+	unsigned lowmark = 0; //writequeue force write 的低阈值,write in [lowmark,CMD_QUEUE_DEPTH]的是需要强制写的，不能被cancel
 	if (rowBufferPolicy == OpenPage && queuingStructure == PerRankPerBank) {
-		bool issueWrite = false;
-		bool issueRead = false;
+		bool sendingWR = false;
+		bool sendingRD = false;
 		bool sendingPRE = false;
 		unsigned startingRank = nextRank;
 		unsigned startingBank = nextBank;
 		do {
-			vector<BusPacket *> &writequeue = writeQueue.getCommandQueue(
-					nextRank, nextBank);
+			vector<TokenEntry *> &writequeue =
+					writeQueue[REQUESTID(nextRank, nextBank)];
 			vector<BusPacket *> &readqueue = readQueue.getCommandQueue(nextRank,
 					nextBank);
 			if (!(writequeue.empty() && readqueue.empty())) {
 				if (!writepriority[nextRank][nextBank]) { //then read priority
-					if (writequeue.size() >= CMD_QUEUE_DEPTH) {
+					if (writequeue.size() >= 8) {
 						writepriority[nextRank][nextBank] = true;
 					}
 				}
 				if (writepriority[nextRank][nextBank]) {
 					if (!WRITECANCEL) {
-						if (writequeue.size() <= 0) {
+						if (writequeue.size() <= 0) { //写完成以后，writepriority是false
 							writepriority[nextRank][nextBank] = false;
 						} else {
-							issueWrite = issueRequest(nextRank, nextBank,
-									*busPacket, writeQueue);
+//							PRINT("write priority is true issue write ");
+							sendingWR = issueWrite_A2(nextRank, nextBank,
+									*busPacket);
 						}
-					} else {
-						if (!readqueue.empty() && writequeue.size() <= 0) { //prioritized the ReadRequest and Cancel the on-going write
+					} else {						//WriteCancle function
+						if (!readqueue.empty()
+								&& writequeue.size() <= lowmark) { //prioritized the ReadRequest and Cancel the on-going write
 							writepriority[nextRank][nextBank] = false;
-							issueWC(nextRank, nextBank); //change the timing of Rank and Bank to issue the ReadRequest
 							coutcanceledwrite[nextRank][nextBank]++; //record the Count of Canceled Write
 							writecancel[nextRank][nextBank] = true;
-							issueRead = issueRequest(nextRank, nextBank,
-									*busPacket, readQueue);
-							if (issueRead) {
-								if (bankStates[nextRank][nextBank].lastCommand
-										== WRITE
-										&& ongoingWrite[nextRank][nextBank]
-												!= NULL) {
-//							PRINTN(
-//									"clock "<<currentClockCycle<<" writecancel! write 0x"<<hex<<ongoingWrite[nextRank][nextBank]->physicalAddress<<dec<<" r["<<nextRank<<"] b["<<nextBank<<"] ");
-									//only these commands have an implicit state change
-									vector<BusPacket*>::iterator it =
-											writequeue.begin();
-									writequeue.insert(it,
-											new BusPacket(WRITE,
-													ongoingWrite[nextRank][nextBank]->physicalAddress,
-													ongoingWrite[nextRank][nextBank]->column,
-													ongoingWrite[nextRank][nextBank]->row,
-													ongoingWrite[nextRank][nextBank]->rank,
-													ongoingWrite[nextRank][nextBank]->bank,
-													ongoingWrite[nextRank][nextBank]->dataPacket,
-													dramsim_log,
-													ongoingWrite[nextRank][nextBank]->RIP));
-									it = writequeue.begin();
-									writequeue.insert(it,
-											new BusPacket(ACTIVATE,
-													ongoingWrite[nextRank][nextBank]->physicalAddress,
-													ongoingWrite[nextRank][nextBank]->column,
-													ongoingWrite[nextRank][nextBank]->row,
-													ongoingWrite[nextRank][nextBank]->rank,
-													ongoingWrite[nextRank][nextBank]->bank,
-													NULL, dramsim_log,
-													ongoingWrite[nextRank][nextBank]->RIP));
-									delete ongoingWrite[nextRank][nextBank];
-									ongoingWrite[nextRank][nextBank] = NULL;
-								}
-							}
+							sendingRD = writeCancel(nextRank, nextBank,
+									*busPacket); //恢复现场？主要是bank 和rank的状态
 						} else {
-							issueWrite = issueRequest(nextRank, nextBank,
-									*busPacket, writeQueue);
+							sendingWR = issueWrite_A2(nextRank, nextBank,
+									*busPacket);
 						}
 					}
 				} else {				//writepriority is false!
 					if (!readqueue.empty()) {
 						writepriority[nextRank][nextBank] = false;
-						issueRead = issueRequest(nextRank, nextBank, *busPacket,
-								readQueue);
+						sendingRD = issueRead(nextRank, nextBank, *busPacket);
 					} else {
-						if (bankStates[nextRank][nextBank].currentBankState
-								== Idle && !writequeue.empty()) {
-							issueWrite = issueRequest(nextRank, nextBank,
-									*busPacket, writeQueue);
+						if (!writequeue.empty()) {
+//							PRINT(
+//									"write priority is false readqueue empty issue write ");
+							sendingWR = issueWrite_A2(nextRank, nextBank,
+									*busPacket);
 						}
 					}
 				}
-				if (issueWrite || issueRead) {
+				if (sendingWR || sendingRD) {
 					return true;
 				}
 			}
-			writeQueue.nextRankAndBank(nextRank, nextBank);
+			readQueue.nextRankAndBank(nextRank, nextBank);
 		} while (!(startingRank == nextRank && startingBank == nextBank));
 
-		if ((!issueWrite) && (!issueRead)) {
-			//issue the PRE to the bank
-			unsigned startingRank = nextRankPRE;
-			unsigned startingBank = nextBankPRE;
-			bool found;
-			do {
-				found = false;
-				vector<BusPacket *> &writequeue = writeQueue.getCommandQueue(
-						nextRankPRE, nextBankPRE);
-				vector<BusPacket *> &readqueue = readQueue.getCommandQueue(
-						nextRankPRE, nextBankPRE);
-				if (!(writequeue.empty() && readqueue.empty())) {
-					if (bankStates[nextRankPRE][nextBankPRE].currentBankState
-							== RowActive) {
-						if (writepriority[nextRankPRE][nextBankPRE]) {
-							for (unsigned i = 0; i < writequeue.size(); i++) {
-								//if there is something going to that bank and row, then we don't want to send a PRE
-								if (writequeue[i]->bank == nextBankPRE
-										&& writequeue[i]->row
-												== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
-									found = true;
-									break;
-								}
-							}
-							if (!found) {
-								for (unsigned i = 0; i < readqueue.size();
-										i++) {
-									//if there is something going to that bank and row, then we don't want to send a PRE
-									if (readqueue[i]->bank == nextBankPRE
-											&& readqueue[i]->row
-													== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
-										if (readqueue[i]->busPacketType
-												!= ACTIVATE) {
-											vector<BusPacket*>::iterator it =
-													readqueue.begin() + i;
-											BusPacket *bpacket =
-													new BusPacket(ACTIVATE,
-															readqueue[i]->physicalAddress,
-															readqueue[i]->column,
-															readqueue[i]->row,
-															readqueue[i]->rank,
-															readqueue[i]->bank,
-															NULL, dramsim_log,
-															readqueue[i]->RIP);
-											readqueue.insert(it, bpacket);
-//										PRINT(
-//												"writeP, write no found, rollback act to read 0x" << hex << bpacket->physicalAddress <<dec<<" r["<<nextRankPRE<<"]b["<<nextBankPRE<<"] ");
-										}
-										break;
-									}
-								}
-								if (currentClockCycle
-										>= bankStates[nextRankPRE][nextBankPRE].nextPrecharge) {
-									sendingPRE = true;
-									*busPacket = new BusPacket(PRECHARGE, 0, 0,
-											0, nextRankPRE, nextBankPRE, NULL,
-											dramsim_log);
-//								PRINT("writeP, write no found, set PRE r["<<nextRankPRE<<"]b["<<nextBankPRE<<"] ");
-									return true;
-								}
-							}
-						} else {
-							for (unsigned i = 0; i < readqueue.size(); i++) {
-								//if there is something going to that bank and row, then we don't want to send a PRE
-								if (readqueue[i]->bank == nextBankPRE
-										&& readqueue[i]->row
-												== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
-									found = true;
-									break;
-								}
-							}
-							if (!found) {
-								for (unsigned i = 0; i < writequeue.size();
-										i++) {
-									//if there is something going to that bank and row, then we don't want to send a PRE
-									if (writequeue[i]->bank == nextBankPRE
-											&& writequeue[i]->row
-													== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
-										//change to add a ACT to this write and PRE This bank
-										if (readqueue.empty()) {
-											found = true;
-											if (currentClockCycle
-													>= bankStates[nextRankPRE][nextBankPRE].nextWrite) {
-												//												 if the bus packet i is an activate, and also the next packet i+1 is write,
-												//												 then we pop i and i+1, return i+1 packet
-												*busPacket =
-														new BusPacket(WRITE,
-																writequeue[i]->physicalAddress,
-																writequeue[i]->column,
-																writequeue[i]->row,
-																writequeue[i]->rank,
-																writequeue[i]->bank,
-																writequeue[i]->dataPacket,
-																dramsim_log,
-																writequeue[i]->RIP);
-												if(tokenRank->powerAllowable(
-														*busPacket)){
-//												tokenRank->initial(*busPacket); //nolimit
-												if (writequeue[i]->busPacketType
-														== ACTIVATE
-														&& writequeue[i + 1]->row
-																== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
-													// i is being returned, but i-1 is being thrown away, so must delete it here
-													delete (writequeue[i + 1]);
-													delete (writequeue[i]);
-													// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
-													writequeue.erase(
-															writequeue.begin()
-																	+ i,
-															writequeue.begin()
-																	+ i + 2);
-												} else {
-													// there's no activate before this packet
-													//or just remove the one bus packet
-													writequeue.erase(
-															writequeue.begin()
-																	+ i);
-												}
-//												PRINTN(
-//														"readP read empty clock["<<currentClockCycle<<"] ");
-//												(*busPacket)->print();
-												return true;
-												}
-												delete (*busPacket);
-											}
-										} else if (writequeue[i]->busPacketType
-												!= ACTIVATE) {
-											vector<BusPacket*>::iterator it =
-													writequeue.begin() + i;
-											BusPacket *bpacket =
-													new BusPacket(ACTIVATE,
-															writequeue[i]->physicalAddress,
-															writequeue[i]->column,
-															writequeue[i]->row,
-															writequeue[i]->rank,
-															writequeue[i]->bank,
-															writequeue[i]->dataPacket,
-															dramsim_log,
-															writequeue[i]->RIP);
-											writequeue.insert(it, bpacket);
-//											PRINT(
-//													"readP, read not empty, not found in read, rollback act to write currentClock["<<currentClockCycle<<"]");
-										}
-										break;
-									}
-								}
-								if (found != true
-										&& currentClockCycle
-												>= bankStates[nextRankPRE][nextBankPRE].nextPrecharge) {
-									sendingPRE = true;
-									*busPacket = new BusPacket(PRECHARGE, 0, 0,
-											0, nextRankPRE, nextBankPRE, NULL,
-											dramsim_log);
-//									PRINTN(
-//											"readP, read not empty, not found in read, set PRE currentClock["<<currentClockCycle<<"] ");
-//									(*busPacket)->print();
-									return true;
-								}
-								// read is empty
-							}											//!found
-						}								//writepriority false
-					}										//bank not active
-				} // queue is empty
-				writeQueue.nextRankAndBank(nextRankPRE, nextBankPRE);
-			} while (!(startingRank == nextRankPRE
-					&& startingBank == nextBankPRE));
-			if (!sendingPRE)
-				return false;
+		if ((!sendingWR) && (!sendingRD)) {/*
+		 //issue the PRE to the bank
+		 unsigned startingRank = nextRankPRE;
+		 unsigned startingBank = nextBankPRE;
+		 bool found;
+		 do {
+		 found = false;
+		 vector<TokenEntry *> &writequeue =
+		 writeQueue[REQUESTID(nextRankPRE, nextBankPRE)];
+		 vector<BusPacket *> &readqueue = readQueue.getCommandQueue(
+		 nextRankPRE, nextBankPRE);
+		 if (bankStates[nextRankPRE][nextBankPRE].currentBankState
+		 == RowActive) {
+		 for (size_t i = 0; i < writequeue.size(); i++) {
+		 //if there is something going to that bank and row, then we don't want to send a PRE
+		 BusPacket *buspacket=writequeue[i]->packet;
+		 if (buspacket->bank == nextBankPRE
+		 && buspacket->row
+		 == bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
+		 found = true;
+		 break;
+		 }
+		 }
+		 if (!found) {
+		 for (size_t i = 0; i < readqueue.size(); i++) {
+		 //if there is something going to that bank and row, then we don't want to send a PRE
+		 if (readqueue[i]->bank == nextBankPRE
+		 && readqueue[i]->row
+		 == bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
+		 found = true;
+		 break;
+		 }
+		 }
+		 }
+		 if (found == false) {
+		 if (currentClockCycle
+		 >= bankStates[nextRankPRE][nextBankPRE].nextPrecharge) {
+		 sendingPRE = true;
+		 *busPacket = new BusPacket(PRECHARGE, 0, 0, 0,
+		 nextRankPRE, nextBankPRE, NULL,
+		 dramsim_log);
+		 PRINT("set PRE r["<<nextRankPRE<<"]b["<<nextBankPRE<<"] ");
+		 return true;
+		 }
+		 }
+		 }
+		 readQueue.nextRankAndBank(nextRankPRE, nextBankPRE);
+		 } while (!(startingRank == nextRankPRE
+		 && startingBank == nextBankPRE));
+		 if (!sendingPRE)
+		 */
+			return false;
 		}
 	}
 }
 bool CancelWrite::isEmpty(unsigned r) {
-	if (writeQueue.isEmpty(r) && readQueue.isEmpty(r)) {
+	if (writeQueue.size() == 0 && readQueue.isEmpty(r)) {
 		return true;
 	} else
 		return false;
 }
 
 void CancelWrite::update() {
-	writeQueue.step();
+//	writeQueue.step();
 	readQueue.step();
 	tokenRank->update();
 	tokenRank->step();

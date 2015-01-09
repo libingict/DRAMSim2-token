@@ -46,8 +46,8 @@ using namespace DRAMSim;
 using namespace std;
 
 BusPacket::BusPacket(BusPacketType packtype, uint64_t physicalAddr, 
-		unsigned col, unsigned rw, unsigned r, unsigned b, DataPacket *data,
-		ostream &dramsim_log_,uint64_t rip) :
+		unsigned col, unsigned rw, unsigned r, unsigned b, DataPacket* data,
+		ostream &dramsim_log_,uint64_t rip,uint64_t laten,double energy_) :
 	dramsim_log(dramsim_log_),
 	busPacketType(packtype),
 	column(col),
@@ -55,8 +55,10 @@ BusPacket::BusPacket(BusPacketType packtype, uint64_t physicalAddr,
 	bank(b),
 	rank(r),
 	physicalAddress(physicalAddr),
-	RIP(rip){
-	if(data!=NULL &&( busPacketType == WRITE||busPacketType == ACTIVATE))
+	RIP(rip),
+	latency(laten),
+	energy(energy_){
+	if(data!=NULL)
 	{
 		dataPacket=new DataPacket(data->getData(),data->getoldData());
 	}
@@ -127,11 +129,23 @@ void BusPacket::print()
 		case READ_P:
 			PRINT("BP [READ_P] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"] data[0x"<<*dataPacket<<dec<<"]");
 			break;
+		case PREACTWR:
+			PRINT("BP [PREACTWR] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<"] data[0x"<<*dataPacket<<dec<<"]");
+			break;
+		case ACTWR:
+			PRINT("BP [ACTWR] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
+			break;
+		case READ_PREHIT:
+			PRINT("BP [READ_PREHIT] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<"] data[0x"<<*dataPacket<<dec<<"]");
+			break;
+		case READ_PREMISS:
+			PRINT("BP [READ_PREMISS] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
+			break;
 		case WRITE:
-			PRINT("BP [WRITE] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<"] data[0x"<<*dataPacket<<dec<<"]");
+			PRINT("BP [WRITE] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"] data[0x"<<*dataPacket<<dec<<"]");
 			break;
 		case WRITE_P:
-			PRINT("BP [WRITE_P] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"]");
+			PRINT("BP [WRITE_P] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<dec<<"] data[0x"<<*dataPacket<<dec<<"]");
 			break;
 		case ACTIVATE:
 			PRINT("BP [ACT] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"] rip["<<hex<<RIP<<"] data[0x"<<*dataPacket<<dec<<"]");

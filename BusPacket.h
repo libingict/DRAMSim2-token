@@ -48,9 +48,11 @@ enum BusPacketType
 	ACTIVATE,
 	PRECHARGE,
 	REFRESH,
-	DATA,
-	PartialSET,
-	FullSET
+	PREACTWR,
+	ACTWR,
+	READ_PREHIT,		//读抢占，行命中
+	READ_PREMISS,		//读抢占，行缺失
+	DATA
 };
 
 class BusPacket
@@ -65,13 +67,18 @@ public:
 	unsigned bank;
 	unsigned rank;
 	uint64_t physicalAddress;
-	DataPacket *dataPacket;
+	DataPacket* dataPacket;
+	uint64_t latency;				//写请求的延迟
+	double energy;
 	uint64_t RIP;
 	unsigned iterNumber ;
 
 	//Functions
-	BusPacket(BusPacketType packtype, uint64_t physicalAddr, unsigned col, unsigned rw, unsigned r, unsigned b, DataPacket *dataPacket, ostream &dramsim_log_,uint64_t rip=0);
-
+	BusPacket(BusPacketType packtype, uint64_t physicalAddr, unsigned col,
+			unsigned rw, unsigned r, unsigned b, DataPacket *dataPacket,
+			ostream &dramsim_log_, uint64_t rip = 0, uint64_t latency = 0,
+			double energy=0);
+//	BusPacket(BusPacket& *buspacket);
 	void print();
 	void print(uint64_t currentClockCycle, bool dataStart);
 //	void printData() const;
