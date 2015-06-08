@@ -106,6 +106,8 @@ extern unsigned tFAW;
 extern unsigned tCKE;
 extern unsigned tXP;
 extern unsigned tCMD;
+extern unsigned RESETLatency; //write to read delay bank
+extern unsigned SETLatency; //write to read delay bank
 
 /* For power parameters (current and voltage), see externs in MemoryController.cpp */ 
 
@@ -121,8 +123,8 @@ extern unsigned NUM_DEVICES;
 #define WRITE_TO_READ_DELAY_R (WL+BL/2+tRTRS-RL) //interrank
 
 
-#define RESETLatency (WL+BL/2+150/tCK)
-#define SETLatency ceil((WL+BL/2+250/tCK))
+//#define RESETLatency (WL+BL/2+150/tCK)  //write to read delay bank
+//#define SETLatency (unsigned)(WL+BL/2+250/tCK))	//write to read delay bank
 #define RESETToken 2
 #define SETToken 1
 

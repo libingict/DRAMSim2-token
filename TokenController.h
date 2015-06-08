@@ -76,6 +76,11 @@ public:
 		 delete dataCounts;
 		 }*/
 	}
+	~TokenEntry(){
+		delete dataCounts;
+		delete packet;
+//		delete [] requestToken;
+	}
 };
 class TokenController: public SimulatorObject {
 private:
@@ -102,6 +107,7 @@ public:
 	unsigned getiterNumber(unsigned datalevel);
 	bool issueWrite(BusPacket *buspacket);
 	bool powerAllowable(TokenEntry*& writerequest);
+	void issueChangestate(TokenEntry*& writerequest);
 	virtual ~TokenController();
 	void update();
 	void update_Naive();

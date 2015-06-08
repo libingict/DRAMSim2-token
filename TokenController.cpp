@@ -34,7 +34,8 @@ TokenController::TokenController(vector<vector<TokenEntry*> >& writequeue,
 //			> (REQUESTID(NUM_RANKS,NUM_BANKS), vector<double>(CMD_QUEUE_DEPTH,
 //					0));		//2D
 	tokenPool = vector<double>(NUM_DEVICES, 80);
-	ratio=1;			//
+	ratio = 2;			//
+//	ratio = 4;
 //per cell 2-MLC
 	currentClockCycle = 0;
 }
@@ -74,6 +75,7 @@ bool TokenController::addwriteRequest(vector<TokenEntry*>& writeBank,
 			found = true;
 			if ((newdata != bspacket->dataPacket->getData()
 					|| oldata != bspacket->dataPacket->getoldData())) { //如果数据不相等
+				delete (writeBank[i]);
 				writeBank.erase(writeBank.begin() + i);
 			} else { //if the written data is same, there is no need to update the write queue，如果数据相同，不需要更新
 				return true;		//这次插入的写操作已经完成
@@ -121,7 +123,8 @@ bool TokenController::addwriteRequest(vector<TokenEntry*>& writeBank,
 				+ (datacounts->partresetCounts[i] * (getiterNumber(1) - 1)
 						+ datacounts->setCounts[i] * (getiterNumber(2) - 1)
 						+ datacounts->partsetCounts[i] * (getiterNumber(3) - 1))
-						* setEnergyperCell * (double) (0.5+(1/2*(double)ratio));
+						* setEnergyperCell
+						* (double) (0.5 + (1 / 2 * (double) ratio));
 		if (datacounts->partresetCounts[i] != 0) { //the latency of line determined by the "partialRESET"  state
 			tmpLatency = (uint64_t)(RESETLatency + (unsigned) (7 * SETLatency));
 		} else if (datacounts->partsetCounts[i] != 0) {
@@ -146,7 +149,7 @@ bool TokenController::addwriteRequest(vector<TokenEntry*>& writeBank,
 		unsigned tmpmaxToken = 0;
 		vector<TokenEntry*>::iterator it = writeBank.begin() + s;
 //		DataCounts* datacounts = *it->dataCounts;
-		if ((*it)->valid == false && (*it)->done == false) {	//the write is not executing or done
+		if ((*it)->valid == false && (*it)->done == false) { //the write is not executing or done
 			for (unsigned d = 0; d < NUM_DEVICES; d++) { //max Token for chip in tmpToken
 				if ((*it)->requestToken[d] > tmpmaxToken) {
 					tmpmaxToken = (*it)->requestToken[d];
@@ -195,7 +198,7 @@ unsigned TokenController::getiterNumber(unsigned datalevel) {
 void TokenController::update_Naive() {  //navie的写方式，当完成之后偿还token
 	for (size_t r = 0; r < NUM_RANKS; r++) {
 		for (size_t b = 0; b < NUM_BANKS; b++) {
-			TokenEntry* tokenentry;
+			TokenEntry* tokenentry = NULL;
 			unsigned elapsedCycle = 0;
 			unsigned delta = 0;
 			for (size_t i = 0; i < tokenQueue[REQUESTID(r,b)].size(); i++) {
@@ -205,12 +208,12 @@ void TokenController::update_Naive() {  //navie的写方式，当完成之后偿
 					elapsedCycle = currentClockCycle - tokenentry->startCycle;
 					delta = elapsedCycle - RESETLatency;
 					if (delta == 7 * (unsigned) SETLatency) {
-						DataCounts* data;
-						BusPacket* bspacket;
+						DataCounts* data = NULL;
+						BusPacket* bspacket = NULL;
 						data = tokenentry->dataCounts;
 						bspacket = tokenentry->packet;
 //						PRINTN(
-//								"elapsedCycle["<<elapsedCycle<<"] tokenQueue pa[0x"<<hex<<bspacket->physicalAddress<<dec<<"] r ["<<r <<"] b ["<<b<<"] i ["<<i<<"] ");
+//								"updateNaive() elapsedCycle["<<elapsedCycle<<"] tokenQueue pa[0x"<<hex<<bspacket->physicalAddress<<dec<<"] r ["<<r <<"] b ["<<b<<"] i ["<<i<<"] ");
 						for (unsigned d = 0; d < NUM_DEVICES; d++) {
 							if (data->setCounts[d] == 0
 									&& data->resetCounts[d] == 0
@@ -247,17 +250,22 @@ void TokenController::update_Naive() {  //navie的写方式，当完成之后偿
 	}
 }
 bool TokenController::release(size_t rank, size_t bank, uint64_t &addr) { //memory controller is able to release the request of writeQueue
-	TokenEntry* write;
+	TokenEntry* write = NULL;
 	addr = 0;
 	for (size_t i = 0; i < tokenQueue[REQUESTID(rank,bank)].size(); i++) {
+		if (tokenQueue[REQUESTID(rank,bank)][i] == NULL) {
+//			PRINT("release clock "<<currentClockCycle<<" rank "<<rank<<" bank "<<bank<<" i["<<i<<"] NULL return");
+			return false;
+		}
 		write = tokenQueue[REQUESTID(rank,bank)][i];
 		if (write->done == true) {
 			addr = write->packet->physicalAddress;
 //			PRINT(
-//					"clock "<<currentClockCycle<<" i["<<i<<"] "<<" TC release is 0x"<<hex<<addr<<dec);
+//					"release clock "<<currentClockCycle<<" rank "<<rank<<" bank "<<bank<<" i["<<i<<"] "<<" TC release is 0x"<<hex<<addr<<dec);
 			delete (tokenQueue[REQUESTID(rank,bank)][i]); //not delete, delete by memory controller.
 			tokenQueue[REQUESTID(rank,bank)].erase(
 					tokenQueue[REQUESTID(rank,bank)].begin() + i);
+//		PRINT("release clock "<<currentClockCycle<<" r "<<rank<<" b "<<bank<<" &r "<<&rank<<" &bank "<<&bank<<" true");
 			return true;
 		}
 	}
@@ -276,7 +284,7 @@ bool TokenController::powerAllowable(TokenEntry*& writerequest) { //isIssuable f
 		if (tokenPool[d] < writerequest->requestToken[d]) {
 //			PRINTN(
 //					"TC false chip["<<d<<"] tokenPool["<<tokenPool[d]<<"] requestToken["<< writerequest->requestToken[d]<<"] ");
-			writerequest->packet->print();
+//			writerequest->packet->print();
 			return false;
 		}
 	}
@@ -288,11 +296,17 @@ bool TokenController::powerAllowable(TokenEntry*& writerequest) { //isIssuable f
 			tokenPool[d] = tokenPool[d] - writerequest->requestToken[d];
 		}
 	}
-	writerequest->packet->print();
+//	writerequest->packet->print();
+//	writerequest->startCycle = currentClockCycle;
+//	writerequest->valid = true;
+//	PRINT("");
+	return true;
+}
+void TokenController::issueChangestate(TokenEntry*& writerequest) { //isIssuable for write
+//	BusPacket *bspacket = writerequest->packet;
 	writerequest->startCycle = currentClockCycle;
 	writerequest->valid = true;
 //	PRINT("");
-	return true;
 }
 void TokenController::print() {/*
  for (size_t r = 0; r < NUM_RANKS; r++) {
@@ -309,13 +323,12 @@ void TokenController::print() {/*
 }
 
 void TokenController::update_SPA() {
-//	unsigned ratio = 4;
 	double fineToken = (double) SETToken / (double) ratio;
-	double fineLatency = ceil(SETLatency / ratio );
+	double fineLatency = ceil(SETLatency / ratio);
 	for (size_t r = 0; r < NUM_RANKS; r++) {
 		for (size_t b = 0; b < NUM_BANKS; b++) {
 			for (size_t i = 0; i < tokenQueue[REQUESTID(r,b)].size(); i++) {
-				TokenEntry* tokenentry;
+				TokenEntry* tokenentry = NULL;
 				unsigned elapsedCycle = 0;
 				unsigned delta = 0;
 				unsigned bitsCount = 0;
@@ -326,11 +339,9 @@ void TokenController::update_SPA() {
 						continue;
 					}
 					delta = elapsedCycle - RESETLatency;
-					DataCounts* data;
-					data = tokenentry->dataCounts;
+					DataCounts* data = tokenentry->dataCounts;
 					unsigned deltaLatency = 0;
 					deltaLatency = delta % (unsigned) SETLatency;
-//					PRINTN("elapsedCycle["<<elapsedCycle<<"] ");
 					for (unsigned d = 0; d < NUM_DEVICES; d++) {		//
 						if (data->setCounts[d] == 0 && data->resetCounts[d] == 0
 								&& data->partsetCounts[d] == 0
@@ -339,7 +350,7 @@ void TokenController::update_SPA() {
 						}
 						if (delta == 0) { //reclaim			如果是RESET迭代完成，回收RESETtoken，分配SETtoken
 //							PRINTN(
-//									"delta=0; before tokenPool d["<<d<<"] before ["<<tokenPool[d]<<"] ");
+//									"delta=0 before tokenPool d["<<d<<"] before ["<<tokenPool[d]<<"] ");
 							tokenPool[d] = tokenPool[d]
 									+ (data->resetCounts[d]
 											+ data->partresetCounts[d]
@@ -353,20 +364,20 @@ void TokenController::update_SPA() {
 													+ data->setCounts[d]
 													+ data->partsetCounts[d])
 													* SETToken; //reallocated
-//							PRINT("after ["<<tokenPool[d]<<"] ");
+//							PRINT("after ["<<tokenPool[d]<<hex<<"] pa[0x"<<hex<<tokenentry->packet->physicalAddress<<dec<<"]; ");
 						} else if (elapsedCycle > RESETLatency) {
 //						PRINTN(
 //								"chip["<<d<<"] requestToken["<<tokenentry->requestToken[d]<<"] tokenPool["<<tokenPool[d]<<"] ");
 							if (deltaLatency % (unsigned) fineLatency == 0) {
 //								PRINTN(
-//										"fineLatency="<<fineLatency<<" deltaLatency["<<deltaLatency<<"] before tokenPool d["<<d<<"] ["<<tokenPool[d]<<"] ");
+//										"deltaLatency["<<deltaLatency<<"] fineLatency="<<fineLatency<<" before tokenPool d["<<d<<"] ["<<tokenPool[d]<<"] ");
 								tokenPool[d] =
 										tokenPool[d]
 												+ fineToken
 														* (data->partresetCounts[d]
 																+ data->setCounts[d]
 																+ data->partsetCounts[d]);
-//								PRINT("after ["<<tokenPool[d]<<"] ");
+//								PRINT("after ["<<tokenPool[d]<<hex<<"] pa[0x"<<hex<<tokenentry->packet->physicalAddress<<dec<<"]; ");
 							}
 							if (delta == (unsigned) SETLatency) { //reclaim 回收SETtoken
 								data->setCounts[d] = 0;
@@ -388,7 +399,7 @@ void TokenController::update_SPA() {
 														* (data->partresetCounts[d]
 																+ data->setCounts[d]
 																+ data->partsetCounts[d]);
-//								PRINT("after ["<<tokenPool[d]<<"] ");
+//								PRINT("after ["<<tokenPool[d]<<hex<<"] pa[0x"<<hex<<tokenentry->packet->physicalAddress<<dec<<"]; ");
 							}
 						}
 
@@ -400,8 +411,8 @@ void TokenController::update_SPA() {
 					}
 					if (bitsCount == 0) {
 						//				PRINT("r["<<r <<"] b["<<b<<"] bitsCount["<<bitsCount<<"]");
-//						PRINTN("tokenentry done buspacket is ");
-						tokenentry->packet->print();
+//						PRINTN("elapsedCycle["<<elapsedCycle<<"] tokenentry done buspacket is ");
+//						tokenentry->packet->print();
 						tokenentry->valid = false;
 						tokenentry->done = true;//release the token and write finish
 						//						delete (tokenQueue[REQUESTID(r,b)][i]);
@@ -409,9 +420,7 @@ void TokenController::update_SPA() {
 						//								tokenQueue[REQUESTID(r,b)].begin() + i);
 					}
 				}
-
 			}
-
 		}
 	}
 }
@@ -419,7 +428,7 @@ void TokenController::update_SPA() {
 void TokenController::update_FPB() {
 	for (size_t r = 0; r < NUM_RANKS; r++) {
 		for (size_t b = 0; b < NUM_BANKS; b++) {
-			TokenEntry* tokenentry;
+			TokenEntry* tokenentry = NULL;
 			unsigned elapsedCycle = 0;
 			unsigned delta = 0;
 			unsigned bitsCount = 0;
@@ -433,9 +442,9 @@ void TokenController::update_FPB() {
 							&& (delta != 7 * (unsigned) SETLatency)) { //不是iteration结束的时候
 						continue;
 					}
-					DataCounts* data;
-					data = tokenentry->dataCounts;
-//					PRINTN("elapsedCycle["<<elapsedCycle<<"] ");
+					DataCounts* data = tokenentry->dataCounts;
+//					PRINTN("elapsedCycle["<<elapsedCycle<<"] tokenentry buspacket is ");
+//					tokenentry->packet->print();
 					for (unsigned d = 0; d < NUM_DEVICES; d++) {		//
 						if (data->setCounts[d] == 0 && data->resetCounts[d] == 0
 								&& data->partsetCounts[d] == 0
@@ -475,8 +484,6 @@ void TokenController::update_FPB() {
 							data->partresetCounts[d] = 0;
 //							PRINTN("delta=7*SETLatency; tokenPool["<<tokenPool[d]<<"] ");
 						}
-//						PRINTN("tokenentry buspacket is ");
-//						tokenentry->packet->print();
 						bitsCount = bitsCount + data->setCounts[d]
 								+ data->resetCounts[d] + data->partsetCounts[d]
 								+ data->partresetCounts[d];
@@ -499,6 +506,6 @@ void TokenController::update_FPB() {
 	}
 }
 void TokenController::update() {
-//	update_SPA();
-	update_Naive();
+	update_SPA();
+//	update_Naive();
 }

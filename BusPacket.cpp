@@ -84,22 +84,22 @@ void BusPacket::print(uint64_t currentClockCycle, bool dataStart)
 		switch (busPacketType)
 		{
 		case READ:
-			cmd_verify_out << currentClockCycle << ": read ("<<rank<<","<<bank<<","<<column<<",0);"<<endl;
+			cmd_verify_out << currentClockCycle << ": read ("<<rank<<","<<bank<<","<<column<<",0);"<<dataPacket<<endl;
 			break;
 		case READ_P:
-			cmd_verify_out << currentClockCycle << ": read ("<<rank<<","<<bank<<","<<column<<",1);"<<endl;
+			cmd_verify_out << currentClockCycle << ": read ("<<rank<<","<<bank<<","<<column<<",1);"<<dataPacket<<endl;
 			break;
 		case WRITE:
 			cmd_verify_out << currentClockCycle << ": write ("<<rank<<","<<bank<<","<<column<<",0 , 0, 'h0);"<<dataPacket<<endl;
 			break;
 		case WRITE_P:
-			cmd_verify_out << currentClockCycle << ": write ("<<rank<<","<<bank<<","<<column<<",1, 0, 'h0);"<<endl;
+			cmd_verify_out << currentClockCycle << ": write ("<<rank<<","<<bank<<","<<column<<",1, 0, 'h0);"<<dataPacket<<endl;
 			break;
 		case ACTIVATE:
-			cmd_verify_out << currentClockCycle <<": activate (" << rank << "," << bank << "," << row <<");"<<endl;
+			cmd_verify_out << currentClockCycle <<": activate (" << rank << "," << bank << "," << row <<");"<<dataPacket<<endl;
 			break;
 		case PRECHARGE:
-			cmd_verify_out << currentClockCycle <<": precharge (" << rank << "," << bank << "," << row <<");"<<endl;
+			cmd_verify_out << currentClockCycle <<": precharge (" << rank << "," << bank << "," << row <<");"<<dataPacket<<endl;
 			break;
 		case REFRESH:
 			cmd_verify_out << currentClockCycle <<": refresh (" << rank << ");"<<endl;

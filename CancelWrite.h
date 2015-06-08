@@ -33,8 +33,8 @@ public:
 //			CommandQueue& cmdqueue);
 	bool issue(BusPacket **busPacket);
 	bool issueRead(unsigned r, unsigned b, BusPacket *&busPacket);
-	bool issueWrite_A1(unsigned r, unsigned b, BusPacket *&busPacket);
-	bool issueWrite_A2(unsigned r, unsigned b, BusPacket *&busPacket);
+	bool issueWrite_PAS(unsigned r, unsigned b, BusPacket *&busPacket);
+	bool issueWrite_RP(unsigned r, unsigned b, BusPacket *&busPacket);
 	bool writeCancel(unsigned r, unsigned b, BusPacket *&busPacket);
 	void update();
 	bool isEmpty(unsigned rank);

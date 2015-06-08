@@ -166,16 +166,15 @@ void MemoryController::update() {
 	for (size_t i = 0; i < NUM_RANKS; i++) {
 		for (size_t j = 0; j < NUM_BANKS; j++) {
 //			if (bankStates[i][j].lastCommand == WRITE) {
-				if (parentMemorySystem->WriteDataDone != NULL) {
-					uint64_t addr = 0;
-					while (cancelwriteQueue.tokenRank->release(i, j, addr)) {
-//							PRINT("clock "<<currentClockCycle<<" WRITE ACK is 0x"<<hex<<addr<<dec<<" then ongoing NULL");
-						(*parentMemorySystem->WriteDataDone)(
-								parentMemorySystem->systemID, addr,
-								currentClockCycle);
-					}
+			uint64_t addr = 0;
+			if (parentMemorySystem->WriteDataDone != NULL) {
+				if (cancelwriteQueue.tokenRank->release(i, j, addr)) {
+//							PRINT("rank "<<i<<" bank "<<j <<"clock "<<currentClockCycle<<" WRITE ACK is 0x"<<hex<<addr<<dec<<" then ongoing NULL");
+					(*parentMemorySystem->WriteDataDone)(
+							parentMemorySystem->systemID, addr,
+							currentClockCycle);
 				}
-//			}
+			}
 			if (bankStates[i][j].stateChangeCountdown > 0) {
 				//decrement counters
 				bankStates[i][j].stateChangeCountdown--;
@@ -313,8 +312,8 @@ void MemoryController::update() {
 		//update each bank's state based on the command that was just popped out of the command queue
 		//
 		//for readability's sake
-//		PRINTN("MC ("<<currentClockCycle<<")== ");
-//				poppedBusPacket->print();
+//		PRINTN("MC update ");
+//		poppedBusPacket->print();
 //				bankStates[rank][bank].print();
 //		uint64_t newdata = poppedBusPacket->dataPacket->getData();
 //		uint64_t oldata = poppedBusPacket->dataPacket->getoldData();
@@ -377,7 +376,6 @@ void MemoryController::update() {
 				bankStates[rank][bank].nextWrite =
 						bankStates[rank][bank].nextActivate;
 			}
-
 			break;
 		case READ_PREHIT:				//读抢占，行命中，bus+read
 			//add energy to account for total
@@ -439,6 +437,7 @@ void MemoryController::update() {
 					}
 				}
 			}
+			break;
 		case WRITE_P:
 		case WRITE:
 			accessCount(rank, bank, poppedBusPacket->RIP,
@@ -482,7 +481,7 @@ void MemoryController::update() {
 									currentClockCycle + WRITE_TO_READ_DELAY_R,
 									bankStates[i][j].nextRead);
 						}
-					} else if (j != poppedBusPacket->bank){
+					} else if (j != poppedBusPacket->bank) {
 						bankStates[i][j].nextWrite = max(
 								currentClockCycle + max(BL / 2, tCCD),
 								bankStates[i][j].nextWrite);
@@ -506,7 +505,7 @@ void MemoryController::update() {
 			accessCount(rank, bank, poppedBusPacket->RIP,
 					poppedBusPacket->physicalAddress, 0);
 			writeEnergyperBank[SEQUENTIAL(rank,bank)] +=
-								poppedBusPacket->energy;
+					poppedBusPacket->energy;
 			bankStates[rank][bank].openRowAddress = poppedBusPacket->row;
 			bankStates[rank][bank].currentBankState = RowActive;
 			if (poppedBusPacket->busPacketType == ACTWR) {
@@ -514,12 +513,12 @@ void MemoryController::update() {
 						currentClockCycle + tRAS + poppedBusPacket->latency,
 						bankStates[rank][bank].nextPrecharge);
 				bankStates[rank][bank].nextWrite = max(
-												currentClockCycle + poppedBusPacket->latency,
-												bankStates[rank][bank].nextWrite);
-										bankStates[rank][bank].nextRead = max(
-												currentClockCycle + tWTR+tRAS
-														+ poppedBusPacket->latency,
-												bankStates[rank][bank].nextRead);
+						currentClockCycle + poppedBusPacket->latency,
+						bankStates[rank][bank].nextWrite);
+				bankStates[rank][bank].nextRead = max(
+						currentClockCycle + tWTR + tRAS
+								+ poppedBusPacket->latency,
+						bankStates[rank][bank].nextRead);
 				bankStates[rank][bank].lastCommand = WRITE;
 			}
 			for (size_t i = 0; i < NUM_RANKS; i++) {
@@ -533,12 +532,12 @@ void MemoryController::update() {
 									currentClockCycle + WRITE_TO_READ_DELAY_R,
 									bankStates[i][j].nextRead);
 						}
-					} else if (j != poppedBusPacket->bank){
+					} else if (j != poppedBusPacket->bank) {
 						bankStates[i][j].nextWrite = max(
-								currentClockCycle + max(BL/2, tCCD)+ tRAS,
+								currentClockCycle + max(BL / 2, tCCD) + tRAS,
 								bankStates[i][j].nextWrite);
 						bankStates[i][j].nextRead = max(
-								currentClockCycle + tWTR+tRAS,
+								currentClockCycle + tWTR + tRAS,
 								bankStates[i][j].nextRead);
 					}
 				}
@@ -550,7 +549,7 @@ void MemoryController::update() {
 			bankStates[rank][bank].openRowAddress = poppedBusPacket->row;
 			bankStates[rank][bank].currentBankState = RowActive;
 			writeEnergyperBank[SEQUENTIAL(rank,bank)] +=
-								poppedBusPacket->energy;
+					poppedBusPacket->energy;
 			if (poppedBusPacket->busPacketType == PREACTWR) {
 				bankStates[rank][bank].nextPrecharge = max(
 						currentClockCycle + tRP + tRAS
@@ -578,10 +577,10 @@ void MemoryController::update() {
 						}
 					} else if (j != poppedBusPacket->bank) {
 						bankStates[i][j].nextWrite = max(
-								currentClockCycle + max(BL/2, tCCD),
-								bankStates[i][j].nextWrite)+ tRP+tRAS;
+								currentClockCycle + max(BL / 2, tCCD),
+								bankStates[i][j].nextWrite) + tRP + tRAS;
 						bankStates[i][j].nextRead = max(
-								currentClockCycle + tWTR + tRP+tRAS,
+								currentClockCycle + tWTR + tRP + tRAS,
 								bankStates[i][j].nextRead);
 					}
 				}
@@ -612,7 +611,6 @@ void MemoryController::update() {
 			bankStates[rank][bank].nextWrite = max(
 					currentClockCycle + (tRCD - AL),
 					bankStates[rank][bank].nextWrite);
-
 			for (size_t i = 0; i < NUM_BANKS; i++) {
 				if (i != poppedBusPacket->bank) {
 					bankStates[rank][i].nextActivate = max(
@@ -620,7 +618,6 @@ void MemoryController::update() {
 							bankStates[rank][i].nextActivate);
 				}
 			}
-
 			break;
 		case PRECHARGE:
 			totalPrePerBank[SEQUENTIAL(rank, bank)]++;
@@ -636,18 +633,16 @@ void MemoryController::update() {
 				PRINT(" ++ Adding Refresh energy to total energy");
 			}
 			refreshEnergy[rank] += (IDD5 - IDD3N) * tRFC * NUM_DEVICES;
-
 			for (size_t i = 0; i < NUM_BANKS; i++) {
 				bankStates[rank][i].nextActivate = currentClockCycle + tRFC;
 				bankStates[rank][i].currentBankState = Refreshing;
 				bankStates[rank][i].lastCommand = REFRESH;
 				bankStates[rank][i].stateChangeCountdown = tRFC;
 			}
-
 			break;
 		default:
 			ERROR(
-					"== Error - Popped a command we shouldn't have of type : " << poppedBusPacket->busPacketType)
+					"clock "<<currentClockCycle<<"== Error - Popped a command we shouldn't have of type : " << poppedBusPacket->busPacketType)
 			;
 			exit(0);
 		}
@@ -665,7 +660,6 @@ void MemoryController::update() {
 		}
 		outgoingCmdPacket = poppedBusPacket;
 		cmdCyclesLeft = tCMD;
-//		bankStates[rank][bank].print();
 	}
 
 	for (size_t i = 0; i < transactionQueue.size(); i++) {
@@ -686,16 +680,15 @@ void MemoryController::update() {
 
 		//if we have room, break up the transaction into the appropriate commands
 		//and add them to the command queue
-
+		DataPacket *datapakcet=new DataPacket(transaction->get_newdata(),
+				transaction->get_oldata());
 		bool added = false;			//denote the trans added success.
 		bool found = false;	//found the same, then can recall the uplevel, this transaction finishes
 		BusPacketType bpType = transaction->getBusPacketType();
 		BusPacket *command = new BusPacket(bpType, transaction->address,
 				newTransactionColumn, newTransactionRow, newTransactionRank,
-				newTransactionBank,
-				new DataPacket(transaction->get_newdata(),
-						transaction->get_oldata()), dramsim_log,
-				transaction->RIP);
+				newTransactionBank, datapakcet, dramsim_log, transaction->RIP);
+		delete (datapakcet);
 //			PRINTN("Input command: ");command->print();PRINTN("\n");
 		if (transaction->transactionType == DATA_READ) {
 			Transaction *trans = new Transaction(*transaction);
@@ -703,6 +696,8 @@ void MemoryController::update() {
 			addedRdTrans++;
 			if (found) {
 				returnTransaction.push_back(trans);
+				PRINT(
+											"MC READ ACK same 0x"<<hex<<transaction->address<<dec);
 				totalReadsPerBank[SEQUENTIAL(
 						newTransactionRank, newTransactionBank)]++;
 			}
@@ -720,7 +715,7 @@ void MemoryController::update() {
 						newTransactionRank, newTransactionBank)]++;
 				if (parentMemorySystem->WriteDataDone != NULL) {
 //					PRINT(
-//							"WRITE ACK same 0x"<<hex<<transaction->address<<dec);
+//							"MC WRITE ACK same 0x"<<hex<<transaction->address<<dec);
 					(*parentMemorySystem->WriteDataDone)(
 							parentMemorySystem->systemID, transaction->address,
 							currentClockCycle);
@@ -1025,6 +1020,7 @@ void MemoryController::printStats(bool finalStats) {
 			" ("<<totalBytesTransferred <<" bytes) aggregate average bandwidth "<<totalBandwidth<<"GB/s");
 
 	double totalAggregateBandwidth = 0.0;
+	double totalAverageLatency = 0.0;
 	for (size_t r = 0; r < NUM_RANKS; r++) {
 
 		PRINT("      -Rank   "<<r<<" : ");
@@ -1039,6 +1035,7 @@ void MemoryController::printStats(bool finalStats) {
 		for (size_t j = 0; j < NUM_BANKS; j++) {
 			PRINT(
 					"        -Bandwidth / Latency  (Bank " <<j<<"): " <<bandwidth[SEQUENTIAL(r,j)] << " GB/s\t\t" <<averageLatency[SEQUENTIAL(r,j)] << " ns");
+			totalAverageLatency=totalAverageLatency+averageLatency[SEQUENTIAL(r,j)];
 
 		}
 		/*		for (size_t b = 0; b < NUM_BANKS; b++) {
@@ -1106,6 +1103,7 @@ void MemoryController::printStats(bool finalStats) {
 							myChannel, r) << totalRankBandwidth / NUM_RANKS;
 		}
 	}
+	PRINT("     Total averageLatency : "<<totalAverageLatency/(NUM_RANKS*NUM_BANKS));
 	if (VIS_FILE_OUTPUT) {
 		csvOut << CSVWriter::IndexedName("Aggregate_Bandwidth", myChannel)
 				<< totalAggregateBandwidth;
