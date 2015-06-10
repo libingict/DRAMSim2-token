@@ -324,7 +324,9 @@ void TokenController::print() {/*
 
 void TokenController::update_SPA() {
 	double fineToken = (double) SETToken / (double) ratio;
-	double fineLatency = ceil(SETLatency / ratio);
+	long e_Latency = SETLatency / 5; //单位延迟，span部分所占的时间'
+	long fineLatency = ceil((SETLatency - e_Latency) / ratio);
+	unsigned deltaLatency = 0;
 	for (size_t r = 0; r < NUM_RANKS; r++) {
 		for (size_t b = 0; b < NUM_BANKS; b++) {
 			for (size_t i = 0; i < tokenQueue[REQUESTID(r,b)].size(); i++) {
@@ -333,24 +335,24 @@ void TokenController::update_SPA() {
 				unsigned delta = 0;
 				unsigned bitsCount = 0;
 				tokenentry = tokenQueue[REQUESTID(r,b)][i];
-				if (tokenentry->valid == true) {  //update the powerToken
+				if (tokenentry->valid == true) { //update the powerToken，write is being executed
 					elapsedCycle = currentClockCycle - tokenentry->startCycle;
+					DataCounts* data = tokenentry->dataCounts;
 					if (elapsedCycle < RESETLatency) {
 						continue;
 					}
-					delta = elapsedCycle - RESETLatency;
-					DataCounts* data = tokenentry->dataCounts;
-					unsigned deltaLatency = 0;
-					deltaLatency = delta % (unsigned) SETLatency;
-					for (unsigned d = 0; d < NUM_DEVICES; d++) {		//
-						if (data->setCounts[d] == 0 && data->resetCounts[d] == 0
-								&& data->partsetCounts[d] == 0
-								&& data->partresetCounts[d] == 0) {
-							continue;
-						}
-						if (delta == 0) { //reclaim			如果是RESET迭代完成，回收RESETtoken，分配SETtoken
-//							PRINTN(
-//									"delta=0 before tokenPool d["<<d<<"] before ["<<tokenPool[d]<<"] ");
+					if (elapsedCycle == RESETLatency) { //reclaim			如果是RESET迭代完成，回收RESETtoken，分配SETtoken
+						PRINTN(
+								"rank "<<r<<" bank "<<b<<" i "<<i<<" elapsedCycle="<<elapsedCycle<<" RESETLatency="<<RESETLatency <<" ");
+						for (unsigned d = 0; d < NUM_DEVICES; d++) {
+							if (data->setCounts[d] == 0
+									&& data->resetCounts[d] == 0
+									&& data->partsetCounts[d] == 0
+									&& data->partresetCounts[d] == 0) { //当前chip没有写执行
+								continue;
+							}
+							PRINTN(
+									" before  chip["<<d<<"] tokenPool["<<tokenPool[d]<<"] ");
 							tokenPool[d] = tokenPool[d]
 									+ (data->resetCounts[d]
 											+ data->partresetCounts[d]
@@ -364,67 +366,94 @@ void TokenController::update_SPA() {
 													+ data->setCounts[d]
 													+ data->partsetCounts[d])
 													* SETToken; //reallocated
-//							PRINT("after ["<<tokenPool[d]<<hex<<"] pa[0x"<<hex<<tokenentry->packet->physicalAddress<<dec<<"]; ");
-						} else if (elapsedCycle > RESETLatency) {
-//						PRINTN(
-//								"chip["<<d<<"] requestToken["<<tokenentry->requestToken[d]<<"] tokenPool["<<tokenPool[d]<<"] ");
-							if (deltaLatency % (unsigned) fineLatency == 0) {
-//								PRINTN(
-//										"deltaLatency["<<deltaLatency<<"] fineLatency="<<fineLatency<<" before tokenPool d["<<d<<"] ["<<tokenPool[d]<<"] ");
+							PRINT(
+									"after ["<<tokenPool[d]<<"]"<<hex<<"] pa[0x"<<hex<<tokenentry->packet->physicalAddress<<dec<<"]; ");
+							bitsCount = bitsCount + data->setCounts[d]
+									+ data->resetCounts[d]
+									+ data->partsetCounts[d]
+									+ data->partresetCounts[d];
+						}
+						if (bitsCount == 0) {  //所有片子上的bit数写完，那么写完成，等待释放
+							tokenentry->valid = false;
+							tokenentry->done = true; //release the token and write finish
+						}
+					} else if (elapsedCycle > RESETLatency) {
+						delta = elapsedCycle - RESETLatency;
+						deltaLatency = delta % (unsigned) SETLatency; //记录第几次迭代
+						//等待span time 结束, 大于e_Latency后开始调度SETtoken
+						if (((deltaLatency > e_Latency)
+								&& (deltaLatency - e_Latency)
+										% (unsigned) fineLatency == 0)
+								|| (deltaLatency == 0)) { //根据fineLatency进行功耗调度，每次stage 末进行功耗更新，增加功耗
+							PRINTN(
+									"rank "<<r<<" bank "<<b<<" i "<<i<<" e_Latency="<<e_Latency<<"deltaLatency["<<deltaLatency<<"] fineLatency="<<fineLatency<<" ");
+							for (unsigned d = 0; d < NUM_DEVICES; d++) {
+								if (data->setCounts[d] == 0
+										&& data->partsetCounts[d] == 0
+										&& data->partresetCounts[d] == 0) { //当前chip没有写执行，查找有写执行的chip
+									continue;
+								}
+								PRINTN(
+										" before tokenPool d["<<d<<"] ["<<tokenPool[d]<<"] ");
 								tokenPool[d] =
 										tokenPool[d]
 												+ fineToken
 														* (data->partresetCounts[d]
 																+ data->setCounts[d]
 																+ data->partsetCounts[d]);
-//								PRINT("after ["<<tokenPool[d]<<hex<<"] pa[0x"<<hex<<tokenentry->packet->physicalAddress<<dec<<"]; ");
+								PRINT(
+										"after ["<<tokenPool[d]<<hex<<"] pa[0x"<<hex<<tokenentry->packet->physicalAddress<<dec<<"]; ");
 							}
-							if (delta == (unsigned) SETLatency) { //reclaim 回收SETtoken
+						}
+						if (delta == (unsigned) SETLatency) { //reclaim 回收SETtoken
+							for (unsigned d = 0; d < NUM_DEVICES; d++) {
 								data->setCounts[d] = 0;
 								//							PRINTN("delta=SETLatency; tokenPool["<<tokenPool[d]<<"] ");
-							} else if (delta == 5 * (unsigned) SETLatency) { //回收 partset Token
+							}
+						} else if (delta == 5 * (unsigned) SETLatency) { //回收 partset Token
+							for (unsigned d = 0; d < NUM_DEVICES; d++) {
 								data->partsetCounts[d] = 0; //reallocated
 								//							PRINTN("delta=5*SETLatency; tokenPool["<<tokenPool[d]<<"] ");
-							} else if (delta == 7 * (unsigned) SETLatency) { //finish no reallocate
+							}
+						} else if (delta == 7 * (unsigned) SETLatency) { //finish no reallocate
+							for (unsigned d = 0; d < NUM_DEVICES; d++) {
 								data->partresetCounts[d] = 0;
-//							tokenentry->valid = false;
 								//							PRINTN("delta=7*SETLatency; tokenPool["<<tokenPool[d]<<"] ");
 							}
-							if (deltaLatency == 0) {	//SETLatency的时候，更新token
-//								PRINTN(
-//										"deltaLatency == 0 delta["<<delta<<"] tokenPool d["<<d<<"] before ["<<tokenPool[d]<<"] ");
+						}
+						if (deltaLatency == 0) {	//SETLatency的时候，更新token
+							PRINTN(
+									"rank "<<r<<" bank "<<b<<" i "<<i<<" e_Latency="<<e_Latency<<"deltaLatency["<<deltaLatency<<"] fineLatency="<<fineLatency<<" ");
+							for (unsigned d = 0; d < NUM_DEVICES; d++) {
+								if (data->setCounts[d] == 0
+										&& data->partsetCounts[d] == 0
+										&& data->partresetCounts[d] == 0) { //当前chip没有写执行
+									continue;
+								}
 								tokenPool[d] =
 										tokenPool[d]
 												- SETToken
 														* (data->partresetCounts[d]
 																+ data->setCounts[d]
 																+ data->partsetCounts[d]);
-//								PRINT("after ["<<tokenPool[d]<<hex<<"] pa[0x"<<hex<<tokenentry->packet->physicalAddress<<dec<<"]; ");
+								PRINT(
+										"after ["<<tokenPool[d]<<hex<<"] pa[0x"<<hex<<tokenentry->packet->physicalAddress<<dec<<"]; ");
+								bitsCount = bitsCount + data->setCounts[d]
+										+ data->resetCounts[d]
+										+ data->partsetCounts[d]
+										+ data->partresetCounts[d];
+							}
+							if (bitsCount == 0) {  //所有片子上的bit数写完，那么写完成，等待释放
+								tokenentry->valid = false;
+								tokenentry->done = true; //release the token and write finish
 							}
 						}
-
-						bitsCount = bitsCount + data->setCounts[d]
-								+ data->resetCounts[d] + data->partsetCounts[d]
-								+ data->partresetCounts[d];
-						//				PRINT("bitsCount["<<bitsCount<<"]");
-						//							PRINTN("after tokenPool["<< tokenPool[d]<<"] ");
-					}
-					if (bitsCount == 0) {
-						//				PRINT("r["<<r <<"] b["<<b<<"] bitsCount["<<bitsCount<<"]");
-//						PRINTN("elapsedCycle["<<elapsedCycle<<"] tokenentry done buspacket is ");
-//						tokenentry->packet->print();
-						tokenentry->valid = false;
-						tokenentry->done = true;//release the token and write finish
-						//						delete (tokenQueue[REQUESTID(r,b)][i]);
-						//						tokenQueue[REQUESTID(r,b)].erase(
-						//								tokenQueue[REQUESTID(r,b)].begin() + i);
 					}
 				}
 			}
 		}
 	}
 }
-
 void TokenController::update_FPB() {
 	for (size_t r = 0; r < NUM_RANKS; r++) {
 		for (size_t b = 0; b < NUM_BANKS; b++) {
@@ -455,38 +484,34 @@ void TokenController::update_FPB() {
 //								"chip["<<d<<"] requestToken["<<tokenentry->requestToken[d]<<"] tokenPool["<<tokenPool[d]<<"] ");
 						if (delta == 0) { //reclaim			如果是RESET迭代完成，回收RESETtoken，分配SETtoken
 							tokenPool[d] = tokenPool[d]
-									+ (data->resetCounts[d]
-											+ data->partresetCounts[d]
-											+ data->setCounts[d]
-											+ data->partsetCounts[d])
-											* RESETToken;
-							data->resetCounts[d] = 0; //RESET完成
-							tokenPool[d] =
-									tokenPool[d]
-											- (data->partresetCounts[d]
-													+ data->setCounts[d]
-													+ data->partsetCounts[d])
-													* SETToken; //reallocated
+							+ (data->resetCounts[d]
+									+ data->partresetCounts[d]
+									+ data->setCounts[d]
+									+ data->partsetCounts[d]) * RESETToken;
+							data->resetCounts[d] = 0;//RESET完成
+							tokenPool[d] = tokenPool[d]
+							- (data->partresetCounts[d] + data->setCounts[d]
+									+ data->partsetCounts[d]) * SETToken;//reallocated
 							//					PRINTN("delat=0; tokenPool["<<tokenPool[d]<<"] ");
 						} else if (delta == (unsigned) SETLatency) { //reclaim 回收SETtoken
 							tokenPool[d] = tokenPool[d]
-									+ (data->setCounts[d]) * SETToken;
+							+ (data->setCounts[d]) * SETToken;
 							data->setCounts[d] = 0;
 //							PRINTN("delta=SETLatency; tokenPool["<<tokenPool[d]<<"] ");
 						} else if (delta == 5 * (unsigned) SETLatency) { //回收 partset Token
 							tokenPool[d] = tokenPool[d]
-									+ (data->partsetCounts[d]) * SETToken;
-							data->partsetCounts[d] = 0; //reallocated
+							+ (data->partsetCounts[d]) * SETToken;
+							data->partsetCounts[d] = 0;//reallocated
 //							PRINTN("delta=5*SETLatency; tokenPool["<<tokenPool[d]<<"] ");
 						} else if (delta == 7 * (unsigned) SETLatency) { //finish no reallocate
 							tokenPool[d] = tokenPool[d]
-									+ (data->partresetCounts[d]) * SETToken;
+							+ (data->partresetCounts[d]) * SETToken;
 							data->partresetCounts[d] = 0;
 //							PRINTN("delta=7*SETLatency; tokenPool["<<tokenPool[d]<<"] ");
 						}
 						bitsCount = bitsCount + data->setCounts[d]
-								+ data->resetCounts[d] + data->partsetCounts[d]
-								+ data->partresetCounts[d];
+						+ data->resetCounts[d] + data->partsetCounts[d]
+						+ data->partresetCounts[d];
 						//				PRINT("bitsCount["<<bitsCount<<"]");
 //							PRINTN("after tokenPool["<< tokenPool[d]<<"] ");
 					}
@@ -494,7 +519,7 @@ void TokenController::update_FPB() {
 						//				PRINT("r["<<r <<"] b["<<b<<"] bitsCount["<<bitsCount<<"]");
 //						PRINT("done ");
 						tokenentry->valid = false;
-						tokenentry->done = true; //release the token and write finish
+						tokenentry->done = true;//release the token and write finish
 //						delete (tokenQueue[REQUESTID(r,b)][i]);
 //						tokenQueue[REQUESTID(r,b)].erase(
 //								tokenQueue[REQUESTID(r,b)].begin() + i);
