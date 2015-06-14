@@ -72,18 +72,25 @@ bool TokenController::addwriteRequest(vector<TokenEntry*>& writeBank,
 				&& writeBank[i]->valid == false && writeBank[i]->done == false
 				&& writeBank[i]->startCycle == 0) {	//if the write queue has the same address, then the old write should be evicted, updated the newest data.
 				//而且没有被发射,也没有执行完
-			found = true;
-			if ((newdata != bspacket->dataPacket->getData()
-					|| oldata != bspacket->dataPacket->getoldData())) { //如果数据不相等
+			found = true;	//该次写操作要被释放/更新，found is true，表示完成一次写操作，为了回应上层。
+			if (newdata != bspacket->dataPacket->getData()) { //如果数据不相等
 				delete (writeBank[i]);
-				writeBank.erase(writeBank.begin() + i);
-			} else { //if the written data is same, there is no need to update the write queue，如果数据相同，不需要更新
+				writeBank.erase(writeBank.begin() + i);	//删除旧数据
+				writtenData = (bspacket->dataPacket->getoldData()) ^ newdata;
+				if(writtenData==0){		//要写的数据跟旧数据相同，那么不需要将新写请求插入队尾。这时候两个写都被删除。
+					return true;
+				}
+				buspacket->dataPacket->setData(newdata,
+						bspacket->dataPacket->getoldData());
+			}
+			//if the written data is same, there is no need to update the write queue，如果数据相同，不需要更新
+			else {
 				return true;		//这次插入的写操作已经完成
 			}
 			break;
 		}
 	}
-
+//同时将要写的数据中的power latency 等计算出来。
 //64bit data, from low to high mapped to chip 0-7
 //	PRINT("newdata is :"<<hex<< newdata<<" oldata is "<< oldata<<dec);
 	DataCounts* datacounts = new DataCounts(); //calculate the data for per chip
@@ -94,10 +101,10 @@ bool TokenController::addwriteRequest(vector<TokenEntry*>& writeBank,
 //actually this is different for each chip.
 	for (unsigned i = 0; i < NUM_DEVICES; i++) { //Per chip
 		for (unsigned j = 0; j < DEVICE_WIDTH / 2; j = j + 1) { //get the number of each level
-			if ((tmpData & 0x3) != 0) {
+			if ((tmpData & 0x3) != 0) {				//异或之后的结果，末两位不是0，表示这两位需要被写。
 //				demandedToken[i];
 //				calculate the demandedToken
-				switch (newdata & 0x3) {
+				switch (newdata & 0x3) {			//具体要被写的数据。
 				case 0x0:  //00
 					datacounts->resetCounts[i]++;
 					break;
@@ -115,16 +122,29 @@ bool TokenController::addwriteRequest(vector<TokenEntry*>& writeBank,
 			tmpData = tmpData >> 2;
 			newdata = newdata >> 2;
 		}
+		//tmpEnergy 整体功耗？ 好像不太对,是每次写操作消耗的功耗。
+		//对于Naive, FPB 以及SPA来说都不一样才对。
 		tmpEnergy = tmpEnergy
 				+ (datacounts->resetCounts[i] + datacounts->partresetCounts[i]
 						+ datacounts->setCounts[i]
 						+ datacounts->partsetCounts[i]) * getiterNumber(0)
 						* resetEnergyperCell
+						//if FPB 根据SET 迭代改变
 				+ (datacounts->partresetCounts[i] * (getiterNumber(1) - 1)
 						+ datacounts->setCounts[i] * (getiterNumber(2) - 1)
 						+ datacounts->partsetCounts[i] * (getiterNumber(3) - 1))
 						* setEnergyperCell
 						* (double) (0.5 + (1 / 2 * (double) ratio));
+		//if SPA，根据stage 改变
+		/*
+		 * + (datacounts->partresetCounts[i] * (getiterNumber(1) - 1)
+						+ datacounts->setCounts[i] * (getiterNumber(2) - 1)
+						+ datacounts->partsetCounts[i] * (getiterNumber(3) - 1))
+						* (double)((setEnergyperCell*2*ratio-1)/5);
+		*/
+		//if Naive 不随着迭代次数改变
+		/*+(datacounts->partresetCounts[i] + datacounts->setCounts[i]+ datacounts->partsetCounts[i])
+		  * (getiterNumber(3) - 1)* setEnergyperCell*/
 		if (datacounts->partresetCounts[i] != 0) { //the latency of line determined by the "partialRESET"  state
 			tmpLatency = (uint64_t)(RESETLatency + (unsigned) (7 * SETLatency));
 		} else if (datacounts->partsetCounts[i] != 0) {
@@ -139,33 +159,37 @@ bool TokenController::addwriteRequest(vector<TokenEntry*>& writeBank,
 		resetToken[i] = (datacounts->resetCounts[i]
 				+ datacounts->partresetCounts[i] + datacounts->setCounts[i]
 				+ datacounts->partsetCounts[i]) * RESETToken;
-		if (resetToken[i] > maxToken) {
+/*		与排序相关
+ * if (resetToken[i] > maxToken) {
 			maxToken = resetToken[i];
-		}
+		}*/
 	}
 //	buspacket->busPacketType=WRITE;
 //update the tokenQueue, order the token as the power increasing order;
-	for (size_t s = 0; s < writeBank.size(); s++) {
-		unsigned tmpmaxToken = 0;
-		vector<TokenEntry*>::iterator it = writeBank.begin() + s;
-//		DataCounts* datacounts = *it->dataCounts;
-		if ((*it)->valid == false && (*it)->done == false) { //the write is not executing or done
-			for (unsigned d = 0; d < NUM_DEVICES; d++) { //max Token for chip in tmpToken
-				if ((*it)->requestToken[d] > tmpmaxToken) {
-					tmpmaxToken = (*it)->requestToken[d];
-				}
-			}
-			if (maxToken < tmpmaxToken) {
-				writeBank.insert(it,
-						new TokenEntry(0, buspacket, false, false, datacounts,
-								tmpLatency, tmpEnergy, resetToken,
-								dramsim_log));
-//				PRINTN("clock "<<currentClockCycle<<" TC addwriteRequest insert buspacket is ");
-//				buspacket->print();
-				return true;
-			}
-		}
-	}
+//排序，更新后的算法不需要排序，但是需要把相同row的安排在一起
+	/*	for (size_t s = 0; s < writeBank.size(); s++) {
+	 unsigned tmpmaxToken = 0;
+	 vector<TokenEntry*>::iterator it = writeBank.begin() + s;
+	 //		DataCounts* datacounts = *it->dataCounts;
+	 if ((*it)->valid == false && (*it)->done == false) { //the write is not executing or done
+	 for (unsigned d = 0; d < NUM_DEVICES; d++) { //max Token for chip in tmpToken
+	 if ((*it)->requestToken[d] > tmpmaxToken) {
+	 tmpmaxToken = (*it)->requestToken[d];
+	 }
+	 }
+	 if (maxToken < tmpmaxToken) {
+	 writeBank.insert(it,
+	 new TokenEntry(0, buspacket, false, false, datacounts,
+	 tmpLatency, tmpEnergy, resetToken,
+	 dramsim_log));
+	 //				PRINTN("clock "<<currentClockCycle<<" TC addwriteRequest insert buspacket is ");
+	 //				buspacket->print();
+	 return true;
+	 }
+	 }
+	 }*/
+	/*TokenEntry(unsigned startCycle_, BusPacket* packet_, bool valid_,bool done_,
+	 DataCounts* datacounts, uint64_t latency_, double energy_,vector<uint64_t> token_, ostream &dramsim_log_)；*/
 	writeBank.push_back(
 			new TokenEntry(0, buspacket, false, false, datacounts, tmpLatency,
 					tmpEnergy, resetToken, dramsim_log)); //order the queue according to the power
