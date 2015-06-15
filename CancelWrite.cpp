@@ -26,6 +26,8 @@ CancelWrite::CancelWrite(vector<vector<BankState> > &states,
 			> (NUM_RANKS, vector<BusPacket *>(NUM_BANKS, NULL));
 	writepriority = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
+	writeBatchtail = vector < vector<int>
+			> (NUM_RANKS, vector<int>(NUM_BANKS, 8));
 	writeQueue = vector < vector<TokenEntry*>
 			> (REQUESTID(NUM_RANKS,NUM_BANKS), vector<TokenEntry*>(0, NULL)); //2D
 	tokenRank = new TokenController(writeQueue, dramsim_log_);
@@ -95,7 +97,7 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 	} else if (transaction->transactionType == DATA_WRITE) { //order the request according to the power
 		//update the tokenqueue
 		uint64_t writtendata = buspacket->dataPacket->getData()
-				^ buspacket->dataPacket->getoldData();//按位异或
+				^ buspacket->dataPacket->getoldData();		//按位异或
 		bool add = false;
 		if (writtendata == 0) { //写的数据为0， 不插入
 			zerowrite[REQUESTID(buspacket->rank, buspacket->bank)]++;
@@ -226,17 +228,46 @@ bool CancelWrite::issueWrite_PAS(unsigned r, unsigned b,
 	return issuable;
 	//check the timing constraint
 }
-void CancelWrite::writeScheduling(unsigned rank_, unsigned bank_) {
-	vector<int> rankID = vector<int>(NUM_RANKS * NUM_BANKS, 0); //用于存储
-	vector<int> bankID = vector<int>(NUM_RANKS * NUM_BANKS, 0);
-	vector<TokenEntry *> &writequeue = writeQueue[REQUESTID(rank, bank)];
-	int rank=rank_;
-	int bank=bank_;
-	if (writepriority[rank][bank] == false && writequeue.size() >= 8) {
-		writepriority[rank][bank] = true;
-		int startRank = rank;
-		int startBank = bank;
-		bool set = false;
+void CancelWrite::firstfit(unsigned r, unsigned b, unsigned rowAddr) {
+	//rowaddress, power的情况,
+	bool feasible = true;
+	vector<double> tmpsumToken(queue->packet->requestToken);
+	int rank = r;
+	int bank = b;
+	bank++;
+	if (bank == NUM_BANKS) {
+		bank = 0;
+		rank++;
+		if (rank == NUM_RANKS) {
+			rank = 0;
+		}
+	}
+	while (!(rank % NUM_RANKS == r && bank % NUM_BANKS == b)) {
+		if (!writepriority[rank][bank])
+			continue;
+		vector<TokenEntry *> &queue = writeQueue[REQUESTID(r, b)];
+		for (unsigned j = 0; j < queue.size(); j++) {
+			TokenEntry * request = queue[j];
+			if (request->valid == true || request->done == true)
+				continue;
+			if (queue[j]->packet->row == rowAddr) { //如果row相同
+				//if power 合适，那么把它排在第一位
+				for (unsigned d = 0; d < NUM_DEVICES; d++) {
+					tmpsumToken[d] += queue[j]->packet->requestToken[d];
+					if (tmpsumToken[d] > tokenRank->tokenPool[d]) { //功耗不能满足，查找writeQueue中的下一个请求，不把该请求加入要处理的请求中如果power 允许
+						tmpsumToken[d] -= queue[j]->packet->requestToken[d];
+						feasible = false;
+						break;
+					}
+				}
+				if (feasible != false) {
+					////把该请求放在队列的首位，优先调度
+					TokenEntry* tmp = queue[j];
+					queue.erase(queue.begin() + j);
+					queue.insert(queue.begin(), tmp);
+				}
+			}
+		}
 		bank++;
 		if (bank == NUM_BANKS) {
 			bank = 0;
@@ -245,97 +276,69 @@ void CancelWrite::writeScheduling(unsigned rank_, unsigned bank_) {
 				rank = 0;
 			}
 		}
-		do {
-			vector<TokenEntry *> queue = writeQueue[REQUESTID(rank, bank)];
-			if (writepriority[rank][bank] == true && set == false) {
-				set = true;
-				rowID = queue[0]->row;
-			} else if (writepriority[rank][bank] == false
-					&& queue.size() >= 8) {	// record the ID to reorder.
-				writepriority[rank][bank] = true;
-				rankID.push_back(rank);
-				bankID.push_back(bank);
-			}
-			bank++;
-			if (bank == NUM_BANKS) {
-				bank = 0;
-				rank++;
-				if (rank == NUM_RANKS) {
-					rank = 0;
+	}
+	return;
+}
+bool CancelWrite::writeScheduling(unsigned rank_, unsigned bank_,
+		BusPacket *&busPacket) {  //当调度某个bank的write 时
+	bool issuable = false;
+	int rank = rank_;
+	int bank = bank_;
+	unsigned rowAddress;
+	vector<TokenEntry *> &writequeue = writeQueue[REQUESTID(rank, bank)];
+	vector<double> &tokenRemain = tokenRank->tokenPool;		//
+	for (unsigned i = 0; i < writequeue.size(); i++) { //应该是遇到currenttail指针
+		request = writequeue[i];
+		if (request->valid == true || request->done == true)
+			continue;
+		BusPacket *buspacket = request->packet;
+		if ((bankStates[rank][bank].currentBankState == RowActive //row hit or idle
+		&& buspacket->row == bankStates[rank][bank].openRowAddress)
+				|| (bankStates[rank][bank].currentBankState == Idle
+						&& currentClockCycle
+								>= bankStates[rank][bank].nextActivate)) {
+			//那么将所有writepriority为true的bank中的写请求进行排序考察
+			for (unsigned d = 0; d < NUM_DEVICES; d++) {
+//				tokenRemain[d] += queue[j]->packet->requestToken[d];
+				if (tokenRemain[d] < request->requestToken[d]) { //功耗不能满足，查找writeQueue中的下一个请求，不把该请求加入要处理的请求中
+//					tokenRemain[d] -= queue[j]->packet->requestToken[d];
+					feasible = false;
+					break;
 				}
 			}
-		} while (!(rank % NUM_RANKS == startRank
-				&& bank % NUM_BANKS == startBank)); //把其他rank以及其他bank的请求都访问一遍
-		for (int ptr = 0; ptr <= 8; ptr++) {				//指针，当前处理queue中的第几个元素
-			vector<double> tmpsumToken = vector<double>(NUM_DEVICES, 0);
-			vector<bool> found= vector<bool>(REQUESTID(NUM_RANKS, NUM_BANKS),true);
-			for (size_t r = 0; r < NUM_RANKS; r++) {
-				for (size_t b = 0; b < NUM_BANKS; b++) {
-					if (writepriority[r][b] != true && found[REQUESTID(r, b)]==false)
-						continue;
-					vector<TokenEntry *> &queue = writeQueue[REQUESTID(r, b)];
-					bool feasible = true;
-					bool same = false;
-					for (unsigned j = 0; j < queue.size(); j++) { //应该是遇到currenttail指针
-		//				vector<TokenEntry*>::iterator it = queue.begin() + j;
-						if (queue[j]->packet->row == rowID) { //相同rowID的最优先
-							//if power 合适，那么把它排在第一位
-							same=true;
-							for (unsigned d = 0; d < NUM_DEVICES; d++) {
-								tmpsumToken[d] += queue[j]->packet->requestToken[d];
-								if (tmpsumToken[d] > 80) { //功耗不能满足，查找writeQueue中的下一个请求，不把该请求加入要处理的请求中
-									tmpsumToken[d] -= queue[j]->packet->requestToken[d];
-									feasible = false;
-									break;
-								}
-							}
-							if (feasible != false) {
-								////把该请求放在队列的首位，优先调度
-								TokenEntry* tmp = queue[j];
-								queue.erase(queue.begin() + j);
-								queue.insert(queue.begin()+ptr, tmp);
-							}
-						}
-					}
-					if(!same){
-						found[REQUESTID(r, b)]=false;
+			if (feasible) { //功耗满足
+				//则考察该请求的时序，执行firstfit算法
+				issuable = true;
+				writeBatchtail[rank][bank]--;
+				if (bankStates[rank][bank].currentBankState == RowActive
+						&& currentClockCycle
+								>= bankStates[rank][bank].nextWrite) { //如果是Row Active
+					busPacket = new BusPacket(WRITE, buspacket->physicalAddress,
+							buspacket->column, buspacket->row, buspacket->rank,
+							buspacket->bank, buspacket->dataPacket, dramsim_log,
+							buspacket->RIP, request->latency, request->energy);
+					rowAddress = bankStates[rank][bank].openRowAddress;
+				} else {
+					busPacket = new BusPacket(ACTWR, buspacket->physicalAddress,
+							buspacket->column, buspacket->row, buspacket->rank,
+							buspacket->bank, buspacket->dataPacket, dramsim_log,
+							buspacket->RIP, request->latency, request->energy);
+					rowAddress = buspacket->physicalAddress;
+				}
+				firstfit(rank, bank, rowAddress); //把其他rank以及其他bank的请求都访问一遍,调度下次的请求
+				for (unsigned d = 0; d < NUM_DEVICES; d++) {
+					if (request->requestToken[d] != 0) {
+						//			PRINTN(
+						//					"chip["<<d<<"] tokenPool["<<tokenPool[d]<<"] requestToken["<<writerequest->requestToken[d]<<"] ");
+						tokenRemain[d] = tokenRemain[d]
+								- request->requestToken[d];
 					}
 				}
-			}
-		}
-
-		for (unsigned i = 0; i < rankID.size(); i++) { //调整writeQueue中请求的位置，即优先级
-			int r = rankID[i];
-			int b = bankID[i];
-			bool feasible = true;
-			vector<double> tokenRemain(tokenRank->tokenPool);
-			vector<double> tmpsumToken = vector<double>(NUM_DEVICES, 0);
-			vector<TokenEntry *> &queue = writeQueue[REQUESTID(r, b)];
-			for (unsigned j = 0; j < queue.size(); j++) { //应该是遇到currenttail指针
-//				vector<TokenEntry*>::iterator it = queue.begin() + j;
-				if (queue[j]->packet->row == rowID) { //相同rowID的最优先
-					//if power 合适，那么把它排在第一位
-					for (unsigned d = 0; d < NUM_DEVICES; d++) {
-						tmpsumToken[d] += queue[j]->packet->requestToken[d];
-						if (tmpsumToken[d] > 80) { //功耗不能满足，查找writeQueue中的下一个请求，不把该请求加入要处理的请求中
-							tmpsumToken[d] -= queue[j]->packet->requestToken[d];
-							feasible = false;
-							break;
-						}
-					}
-					if (feasible != false) {
-						////把该请求放在队列的首位，优先调度
-						TokenEntry* tmp = queue[j];
-						queue.erase(queue.begin() + j);
-						queue.insert(queue.begin(), tmp);
-					}
-				} else { //rowID不同的如何处理？
-
-				}
+				tokenRank->issueChangestate(request);
 			}
 		}
 	}
-	return;
+	return issuable;
 }
 bool CancelWrite::issueWrite_RP(unsigned r, unsigned b, BusPacket *&busPacket) { //时序优先，必须时序满足，再检测功耗。
 //timing priority
@@ -519,16 +522,19 @@ bool CancelWrite::issue(BusPacket **busPacket) {
 				if (!writepriority[nextRank][nextBank]) { //then read priority
 					if (writequeue.size() >= 8) {
 						writepriority[nextRank][nextBank] = true;
+						writeBatchtail[nextRank][nextBank] = 8;
 					}
 				}
 				if (writepriority[nextRank][nextBank]) {
 					if (!WRITECANCEL) {
-						if (writequeue.size() <= 0) { //写完成以后，writepriority是false，保证这段时间是batch调度的。
+						if (writeBatchtail[nextRank][nextBank] == 0) { //写完成以后，writepriority是false，保证这段时间是batch调度的。
 							writepriority[nextRank][nextBank] = false;
 						} else {
 							PRINT(
 									"write priority is true issue write currentClock is "<<currentClockCycle);
-							sendingWR = issueWrite_PAS(nextRank, nextBank,
+//							sendingWR = issueWrite_PAS(nextRank, nextBank,
+//									*busPacket);
+							sendingWR = writeScheduling(nextRank, nextBank,
 									*busPacket);
 						}
 					} else {						//WriteCancle function
@@ -546,13 +552,15 @@ bool CancelWrite::issue(BusPacket **busPacket) {
 					}
 				} else {				//writepriority is false!
 					if (!readqueue.empty()) {
-						writepriority[nextRank][nextBank] = false;
+//						writepriority[nextRank][nextBank] = false;
 						sendingRD = issueRead(nextRank, nextBank, *busPacket);
 					} else {
 						if (!writequeue.empty()) {
 							PRINT(
 									"write priority is false readqueue empty issue write currentClock is "<<currentClockCycle);
-							sendingWR = issueWrite_PAS(nextRank, nextBank,
+							/*							sendingWR = issueWrite_PAS(nextRank, nextBank,
+							 *busPacket);*/
+							sendingWR = writeScheduling(nextRank, nextBank,
 									*busPacket);
 						}
 					}
@@ -567,6 +575,8 @@ bool CancelWrite::issue(BusPacket **busPacket) {
 		} while (!(startingRank == nextRank && startingBank == nextBank));
 
 		if ((!sendingWR) && (!sendingRD)) {
+			//查看可以关的bank， issue PRE; bank open但是没有相同的row可以发射。
+
 			return false;
 		}
 	}

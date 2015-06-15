@@ -34,6 +34,8 @@ public:
 	bool issue(BusPacket **busPacket);
 	bool issueRead(unsigned r, unsigned b, BusPacket *&busPacket);
 	bool issueWrite_PAS(unsigned r, unsigned b, BusPacket *&busPacket);
+	bool writeScheduling(unsigned r, unsigned b, BusPacket *&busPacket);
+	void firstfit(unsigned r, unsigned b, unsigned row);
 	bool issueWrite_RP(unsigned r, unsigned b, BusPacket *&busPacket);
 	bool writeCancel(unsigned r, unsigned b, BusPacket *&busPacket);
 	void update();
@@ -42,6 +44,7 @@ public:
 	vector<vector<BusPacket*> > ongoingWrite;
 //	vector<vector<BusPacket*> > canceledWrite;
 	vector<vector<bool> > writepriority;
+	vector<vector<int> > writepriority;
 	vector<vector<bool> > writecancel;
 	TokenController* tokenRank;
 	vector < uint64_t > zerowrite; //record the zero write, 记录修改data为零的请求。

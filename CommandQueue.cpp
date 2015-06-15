@@ -291,7 +291,6 @@ bool CommandQueue::pop(BusPacket **busPacket) {
 					//search for commands going to an open row
 					vector<BusPacket *> &refreshQueue = getCommandQueue(
 							refreshRank, b);
-
 					for (size_t j = 0; j < refreshQueue.size(); j++) {
 						BusPacket *packet = refreshQueue[j];
 						//if a command in the queue is going to the same row . . .
@@ -316,7 +315,6 @@ bool CommandQueue::pop(BusPacket **busPacket) {
 							}
 						}
 					}
-
 					//if the bank is open and we are allowed to close it, then send a PRE
 					if (closeRow
 							&& currentClockCycle
