@@ -17,7 +17,6 @@ CancelWrite::CancelWrite(vector<vector<BankState> > &states,
 				CMD_QUEUE_DEPTH), nextRank(0), nextBank(0), nextRankPRE(0), nextBankPRE(
 				0), dramsim_log(dramsim_log_) {
 	currentClockCycle = 0;
-
 	writecancel = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
 	coutcanceledwrite = vector < vector<uint64_t>
@@ -26,8 +25,10 @@ CancelWrite::CancelWrite(vector<vector<BankState> > &states,
 			> (NUM_RANKS, vector<BusPacket *>(NUM_BANKS, NULL));
 	writepriority = vector < vector<bool>
 			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
-	writeBatchtail = vector < vector<int>
-			> (NUM_RANKS, vector<int>(NUM_BANKS, 8));
+	sendPRE = vector < vector<bool>
+			> (NUM_RANKS, vector<bool>(NUM_BANKS, false));
+	windowsize = vector < vector<unsigned>
+			> (NUM_RANKS, vector<unsigned>(NUM_BANKS, 0));
 	writeQueue = vector < vector<TokenEntry*>
 			> (REQUESTID(NUM_RANKS,NUM_BANKS), vector<TokenEntry*>(0, NULL)); //2D
 	tokenRank = new TokenController(writeQueue, dramsim_log_);
@@ -40,6 +41,8 @@ CancelWrite::~CancelWrite() {
 		ongoingWrite[r].clear();
 		writecancel[r].clear();
 		writepriority[r].clear();
+		sendPRE[r].clear();
+		windowsize[r].clear();
 		for (size_t b = 0; b < NUM_BANKS; b++) {
 			for (size_t i = 0; i < writeQueue[REQUESTID(r,b)].size(); i++) {
 				delete (writeQueue[REQUESTID(r,b)][i]);
@@ -117,7 +120,7 @@ bool CancelWrite::addRequest(Transaction *transaction, BusPacket *buspacket,
 
 bool CancelWrite::issueRead(unsigned r, unsigned b, BusPacket *&busPacket) {
 	bool issuable = false;
-	bool found = false;
+	bool found = false; //有相同的row
 	vector<BusPacket *> &queue = readQueue.getCommandQueue(r, b);
 	for (unsigned i = 0; i < queue.size(); i++) {
 		BusPacket *request = queue[i];
@@ -159,9 +162,10 @@ bool CancelWrite::issueRead(unsigned r, unsigned b, BusPacket *&busPacket) {
 	if (issuable == false && found == false) {
 		if (bankStates[r][b].currentBankState == RowActive
 				&& currentClockCycle >= bankStates[r][b].nextPrecharge) {
-			issuable = true;
-			busPacket = new BusPacket(PRECHARGE, 0, 0, 0, r, b, NULL,
-					dramsim_log);
+			sendPRE[r][b] = true;
+//			issuable = true;
+//			busPacket = new BusPacket(PRECHARGE, 0, 0, 0, r, b, NULL,
+//					dramsim_log);
 //			PRINT("issueRead set PRE r["<<r<<"]b["<<b<<"] row["<<bankStates[r][b].openRowAddress<<"] ");
 		}
 	}
@@ -171,14 +175,28 @@ bool CancelWrite::issueRead(unsigned r, unsigned b, BusPacket *&busPacket) {
 bool CancelWrite::issueWrite_PAS(unsigned r, unsigned b,
 		BusPacket *&busPacket) { //how to issue write
 	TokenEntry* request;		//功耗优先，如果功耗可以，那么就发射该请求。
+	vector<TokenEntry *> &queue = writeQueue[REQUESTID(r, b)];
 	bool issuable = false;
+	unsigned range = 0;
 	//check the power allowable
 	//power priority
-	for (unsigned i = 0; i < writeQueue[REQUESTID(r,b)].size(); i++) {
-		request = writeQueue[REQUESTID(r,b)][i];
-		if (request->valid == true || request->done == true) {
-			continue;
+	unsigned head = 0;
+	for (head = 0; head < writeQueue[REQUESTID(r,b)].size(); head++) {
+		if (queue[head]->valid != true) {
+			break;
 		}
+	}
+	if (writepriority[r][b] == false) {
+		PRINT(
+				"r "<<r<<" b "<<b<<" writepriority false range is "<<writeQueue[REQUESTID(r, b)].size()-head);
+		range = writeQueue[REQUESTID(r, b)].size() - head;
+	} else {
+		PRINT(
+				"r "<<r<<" b "<<b<<" writepriority true range is "<<windowsize[r][b]);
+		range = windowsize[r][b];
+	}
+	for (unsigned i = head; i < head + range; i++) {
+		request = queue[i];
 		BusPacket *buspacket = request->packet;
 //		PRINT("issueWrite_PAS currentClock is "<<currentClockCycle);
 //		bankStates[r][b].print();
@@ -214,9 +232,12 @@ bool CancelWrite::issueWrite_PAS(unsigned r, unsigned b,
 			}
 		}
 		if (issuable) {
+			if (writepriority[r][b] == true && windowsize[r][b] > 0) { //不是因为readQueue为空
+				windowsize[r][b]--;
+			}
+			tokenRank->issueChangestate(request);
 			PRINTN("issueWrite_PAS true currentClock is "<<currentClockCycle);
 			busPacket->print();
-			tokenRank->issueChangestate(request);
 			return issuable;
 		}
 //		
@@ -231,7 +252,10 @@ bool CancelWrite::issueWrite_PAS(unsigned r, unsigned b,
 void CancelWrite::firstfit(unsigned r, unsigned b, unsigned rowAddr) {
 	//rowaddress, power的情况,
 	bool feasible = true;
-	vector<double> tmpsumToken(queue->packet->requestToken);
+	vector<double> tmpsumToken = vector<double>(NUM_DEVICES, 0);
+	//						PRINT("firstfit ");
+	vector<double> tokenRemain(tokenRank->tokenPool);
+	unsigned head = 0;
 	int rank = r;
 	int bank = b;
 	bank++;
@@ -242,29 +266,46 @@ void CancelWrite::firstfit(unsigned r, unsigned b, unsigned rowAddr) {
 			rank = 0;
 		}
 	}
-	while (!(rank % NUM_RANKS == r && bank % NUM_BANKS == b)) {
-		if (!writepriority[rank][bank])
-			continue;
-		vector<TokenEntry *> &queue = writeQueue[REQUESTID(r, b)];
-		for (unsigned j = 0; j < queue.size(); j++) {
-			TokenEntry * request = queue[j];
-			if (request->valid == true || request->done == true)
+	do {
+		if (writepriority[rank][bank]) {
+			vector<TokenEntry *> &queue = writeQueue[REQUESTID(rank, bank)];
+			TokenEntry * request;
+			bool isFalse = false;
+			for (head = 0; head < queue.size(); head++) {
+				request = queue[head];
+				if (request->valid != true) {
+					isFalse = true;
+					break;
+				}
+			}
+			if (!isFalse)
 				continue;
-			if (queue[j]->packet->row == rowAddr) { //如果row相同
-				//if power 合适，那么把它排在第一位
-				for (unsigned d = 0; d < NUM_DEVICES; d++) {
-					tmpsumToken[d] += queue[j]->packet->requestToken[d];
-					if (tmpsumToken[d] > tokenRank->tokenPool[d]) { //功耗不能满足，查找writeQueue中的下一个请求，不把该请求加入要处理的请求中如果power 允许
-						tmpsumToken[d] -= queue[j]->packet->requestToken[d];
-						feasible = false;
+			for (unsigned j = head;
+					j < queue.size() && j < head + windowsize[rank][bank];
+					j++) {
+				request = queue[j];
+				if (request->packet->row == rowAddr) { //如果row相同
+					//if power 合适，那么把它排在第一位
+					for (unsigned d = 0; d < NUM_DEVICES; d++) {
+						if (request->requestToken[d] > tokenRemain[d]) { //功耗不能满足，查找writeQueue中的下一个请求，不把该请求加入要处理的请求中如果power 允许
+							feasible = false;
+							break;
+						}
+					}
+					if (feasible != false) {
+						////把该请求放在队列的首位，优先调度
+						for (unsigned d = 0; d < NUM_DEVICES; d++) {
+							if (request->requestToken[d] != 0) { //统计当前的功耗值；
+								tmpsumToken[d] += request->requestToken[d];
+								tokenRemain[d] -= request->requestToken[d];
+							}
+						}
+						TokenEntry* tmp = queue[j];
+//						tmp->packet->print();
+						queue.erase(queue.begin() + j);
+						queue.insert(queue.begin() + head, tmp);
 						break;
 					}
-				}
-				if (feasible != false) {
-					////把该请求放在队列的首位，优先调度
-					TokenEntry* tmp = queue[j];
-					queue.erase(queue.begin() + j);
-					queue.insert(queue.begin(), tmp);
 				}
 			}
 		}
@@ -276,156 +317,222 @@ void CancelWrite::firstfit(unsigned r, unsigned b, unsigned rowAddr) {
 				rank = 0;
 			}
 		}
-	}
+	} while (!(rank == r && bank == b));
 	return;
 }
 bool CancelWrite::writeScheduling(unsigned rank_, unsigned bank_,
 		BusPacket *&busPacket) {  //当调度某个bank的write 时
-	bool issuable = false;
-	int rank = rank_;
-	int bank = bank_;
+	bool issuable = false;	//是否可执行
+	bool feasible = false;	//可行的
+	bool allowable = true;	//功耗是否可行
+	unsigned range = 0;
+	unsigned rank = rank_;
+	unsigned bank = bank_;
 	unsigned rowAddress;
-	vector<TokenEntry *> &writequeue = writeQueue[REQUESTID(rank, bank)];
-	vector<double> &tokenRemain = tokenRank->tokenPool;		//
-	for (unsigned i = 0; i < writequeue.size(); i++) { //应该是遇到currenttail指针
-		request = writequeue[i];
-		if (request->valid == true || request->done == true)
-			continue;
-		BusPacket *buspacket = request->packet;
+	vector<double> &tokenRemain = tokenRank->tokenPool;	//Pool中现有的功耗，只有大于请求需要的功耗才能执行
+	vector<TokenEntry *> &queue = writeQueue[REQUESTID(rank, bank)];
+	BusPacket *buspacket;
+	TokenEntry *request;
+	unsigned head = 0;
+	unsigned i = 0;
+	bool found = false;
+//bankStates[rank][bank].print();
+//	PRINT("currentClockCycle "<<currentClockCycle);
+	for (head = 0; head < writeQueue[REQUESTID(rank,bank)].size(); head++) {
+		if (queue[head]->valid != true) {
+			found = true;
+			break;
+		}
+	}
+	if (!found) {
+//		PRINT("All true!")
+		return false;
+	}
+	if (writepriority[rank][bank] == false) {
+//			PRINT(
+//					"rank "<<rank<<" bank "<<bank<<" writepriority false range is "<<writeQueue[REQUESTID(rank, bank)].size()-head<<" head is "<<head);
+		range = writeQueue[REQUESTID(rank, bank)].size() - head;
+	} else {
+//			PRINT(
+//					"rank "<<rank<<" bank "<<bank<<" writepriority true range is "<<windowsize[rank][bank]<<" head is "<<head);
+		range = windowsize[rank][bank];
+	}
+	for (i = head; i < head + range; i++) { //应该是遇到currenttail指针
+		request = queue[i];
+		buspacket = request->packet;
+		allowable = true;
 		if ((bankStates[rank][bank].currentBankState == RowActive //row hit or idle
 		&& buspacket->row == bankStates[rank][bank].openRowAddress)
 				|| (bankStates[rank][bank].currentBankState == Idle
 						&& currentClockCycle
 								>= bankStates[rank][bank].nextActivate)) {
 			//那么将所有writepriority为true的bank中的写请求进行排序考察
+			feasible = true;
 			for (unsigned d = 0; d < NUM_DEVICES; d++) {
 //				tokenRemain[d] += queue[j]->packet->requestToken[d];
 				if (tokenRemain[d] < request->requestToken[d]) { //功耗不能满足，查找writeQueue中的下一个请求，不把该请求加入要处理的请求中
-//					tokenRemain[d] -= queue[j]->packet->requestToken[d];
-					feasible = false;
+//					PRINT("chip["<<d<<"] tokenRemain["<<tokenRemain[d]<<"] requestToken["<< request->requestToken[d]<<"] pa[0x"<<hex<<buspacket->row<<dec<<"]");
+					allowable = false;
 					break;
 				}
 			}
-			if (feasible) { //功耗满足
-				//则考察该请求的时序，执行firstfit算法
-				issuable = true;
-				writeBatchtail[rank][bank]--;
-				if (bankStates[rank][bank].currentBankState == RowActive
-						&& currentClockCycle
-								>= bankStates[rank][bank].nextWrite) { //如果是Row Active
-					busPacket = new BusPacket(WRITE, buspacket->physicalAddress,
-							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->dataPacket, dramsim_log,
-							buspacket->RIP, request->latency, request->energy);
-					rowAddress = bankStates[rank][bank].openRowAddress;
-				} else {
-					busPacket = new BusPacket(ACTWR, buspacket->physicalAddress,
-							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->dataPacket, dramsim_log,
-							buspacket->RIP, request->latency, request->energy);
-					rowAddress = buspacket->physicalAddress;
-				}
-				firstfit(rank, bank, rowAddress); //把其他rank以及其他bank的请求都访问一遍,调度下次的请求
-				for (unsigned d = 0; d < NUM_DEVICES; d++) {
-					if (request->requestToken[d] != 0) {
-						//			PRINTN(
-						//					"chip["<<d<<"] tokenPool["<<tokenPool[d]<<"] requestToken["<<writerequest->requestToken[d]<<"] ");
-						tokenRemain[d] = tokenRemain[d]
-								- request->requestToken[d];
-					}
-				}
-				tokenRank->issueChangestate(request);
+			if (!allowable) {
+//				PRINT("power is not allowable i "<< i<<" ");
+				continue;//查找下一个请求
+			} else {
+//				PRINT("power is allowable i "<< i<<" ");
+				break;
 			}
 		}
+
 	}
-	return issuable;
+	if (feasible && allowable) { //功耗满足,则考察该请求的时序，执行firstfit算法
+		if (bankStates[rank][bank].currentBankState == RowActive
+				&& buspacket->row == bankStates[rank][bank].openRowAddress
+				&& currentClockCycle >= bankStates[rank][bank].nextWrite) { //如果是Row Active,时序满足
+			busPacket = new BusPacket(WRITE, buspacket->physicalAddress,
+					buspacket->column, buspacket->row, buspacket->rank,
+					buspacket->bank, buspacket->dataPacket, dramsim_log,
+					buspacket->RIP, request->latency, request->energy);
+			rowAddress = bankStates[rank][bank].openRowAddress;
+			issuable = true;
+		}
+		if (bankStates[rank][bank].currentBankState == Idle
+				&& currentClockCycle >= bankStates[rank][bank].nextActivate) {
+			busPacket = new BusPacket(ACTWR, buspacket->physicalAddress,
+					buspacket->column, buspacket->row, buspacket->rank,
+					buspacket->bank, buspacket->dataPacket, dramsim_log,
+					buspacket->RIP, request->latency, request->energy);
+			rowAddress = buspacket->physicalAddress;
+			issuable = true;
+		}
+		if (issuable) {
+			for (unsigned d = 0; d < NUM_DEVICES; d++) {	//更新tokenPool中的值
+				if (request->requestToken[d] != 0) {
+//								PRINTN(
+//										"chip["<<d<<"] before tokenRemain["<<tokenRemain[d]<<"] requestToken["<<request->requestToken[d]<<"] ");
+					tokenRemain[d] = tokenRemain[d] - request->requestToken[d];
+//					PRINTN(
+//															" after tokenRemain["<<tokenRemain[d]<<"];");
+				}
+			}
+//			PRINT("");
+			tokenRank->issueChangestate(request);
+			if (windowsize[rank][bank] == 8) { //不是因为readQueue为空
+				firstfit(rank, bank, rowAddress);
+			}
+			if (writepriority[rank][bank] == true
+					&& windowsize[rank][bank] > 0) { //不是因为readQueue为空更新windowsize
+				windowsize[rank][bank]--;
+			}
+			queue.erase(queue.begin() + i);
+			queue.insert(queue.begin() + head, request);
+//			PRINTN("issue return request valid "<<request->valid <<" queue[head]->valid "<<writeQueue[REQUESTID(rank,bank)][head]->valid<<" ");
+//			request->packet->print();	//把这个请求放在head部
+			return true;
+		}
+	}
+//把其他rank以及其他bank的请求都访问一遍,调度下次的请求
+	if (bankStates[rank][bank].currentBankState == RowActive) {
+		if ((feasible && (!allowable)) || (!feasible)) {
+			sendPRE[rank][bank] = true;
+//			PRINT("write sendPRE true");
+		}
+		return false;
+	}
+	return false;
 }
 bool CancelWrite::issueWrite_RP(unsigned r, unsigned b, BusPacket *&busPacket) { //时序优先，必须时序满足，再检测功耗。
 //timing priority
 	TokenEntry *request;
 	BusPacket *buspacket;
-	bool found = false;
 	bool issuable = false;
+	bool found = false;
+	bool isFalse = false;
+	unsigned range = 0;
+	unsigned head = 0;
+	for (head = 0; head < writeQueue[REQUESTID(r,b)].size(); head++) {
+		if (writeQueue[REQUESTID(r,b)][head]->valid != true) {
+			isFalse = true;
+			break;
+		}
+	}
+	if (!isFalse) {
+		return false;
+	}
+	if (writepriority[r][b] == false) {
+		//		PRINT(
+		//				"r "<<r<<" b "<<b<<" writepriority false range is "<<writeQueue[REQUESTID(r, b)].size());
+		range = writeQueue[REQUESTID(r, b)].size() - head;
+	} else {
+		//		PRINT(
+		//				"r "<<r<<" b "<<b<<" writepriority true range is "<<windowsize[r][b]);
+		range = windowsize[r][b];
+	}
 	if (currentClockCycle >= bankStates[r][b].nextWrite
 			&& bankStates[r][b].currentBankState == RowActive) {
-		for (unsigned i = 0; i < writeQueue[REQUESTID(r,b)].size(); i++) {
+		for (unsigned i = head; i < head + range; i++) {
 			request = writeQueue[REQUESTID(r,b)][i];
-			if (request->valid != true && request->done != true) { //正在执行/待释放
-				buspacket = request->packet;
-				if (buspacket->row == bankStates[r][b].openRowAddress) {
-					//row hit
-					found = true;
-					if (tokenRank->powerAllowable(request)) { //power is not allowed
-						busPacket = new BusPacket(WRITE,
-								buspacket->physicalAddress, buspacket->column,
-								buspacket->row, buspacket->rank,
-								buspacket->bank, buspacket->dataPacket,
-								dramsim_log, buspacket->RIP, request->latency,
-								request->energy);	//写的延迟
+			buspacket = request->packet;
+			if (buspacket->row == bankStates[r][b].openRowAddress) {
+				//row hit
+				found = true;
+				if (tokenRank->powerAllowable(request)) { //power is not allowed
+					busPacket = new BusPacket(WRITE, buspacket->physicalAddress,
+							buspacket->column, buspacket->row, buspacket->rank,
+							buspacket->bank, buspacket->dataPacket, dramsim_log,
+							buspacket->RIP, request->latency, request->energy);	//写的延迟
 //						PRINTN(
 //								"clock "<<currentClockCycle<<"issueWrite_A2 row hit ");
 //						busPacket->print();
-						issuable = true;
-						tokenRank->issueChangestate(request);
-						return true;
-					} else {
-						return false;
+					issuable = true;
+					tokenRank->issueChangestate(request);
+					if (writepriority[r][b] == true && windowsize[r][b] > 0) { //不是因为readQueue为空
+						windowsize[r][b]--;
 					}
-					break;
+					//移到queue的头部
+					writeQueue[REQUESTID(r, b)].erase(
+							writeQueue[REQUESTID(r, b)].begin() + i);
+					writeQueue[REQUESTID(r, b)].insert(
+							writeQueue[REQUESTID(r, b)].begin() + head,
+							request);
+					return true;
+				} else {
+					return false;
 				}
+				break;
 			}
 		}
 	} else if (bankStates[r][b].currentBankState == Idle
 			&& currentClockCycle >= bankStates[r][b].nextActivate) {		//空
-		for (unsigned i = 0; i < writeQueue[REQUESTID(r,b)].size(); i++) {
+		for (unsigned i = head; i < head + range; i++) {
 			request = writeQueue[REQUESTID(r,b)][i];
-			if (request->valid != true && request->done != true) {
-				if (tokenRank->powerAllowable(request)) {	//power is allowed
-					buspacket = request->packet;
-					busPacket = new BusPacket(ACTWR, buspacket->physicalAddress,
-							buspacket->column, buspacket->row, buspacket->rank,
-							buspacket->bank, buspacket->dataPacket, dramsim_log,
-							buspacket->RIP, request->latency, request->energy);	//写的延迟
+			if (tokenRank->powerAllowable(request)) {	//power is allowed
+				buspacket = request->packet;
+				busPacket = new BusPacket(ACTWR, buspacket->physicalAddress,
+						buspacket->column, buspacket->row, buspacket->rank,
+						buspacket->bank, buspacket->dataPacket, dramsim_log,
+						buspacket->RIP, request->latency, request->energy);	//写的延迟
 //					PRINTN("clock "<<currentClockCycle<<"issueWrite_A2 Idle ");
 //					busPacket->print();
-					issuable = true;
-					tokenRank->issueChangestate(request);
-					return true;
+				issuable = true;
+				if (writepriority[r][b] == true && windowsize[r][b] > 0) { //不是因为readQueue为空
+					windowsize[r][b]--;
 				}
+				tokenRank->issueChangestate(request);
+				//移到queue的头部
+				writeQueue[REQUESTID(r, b)].erase(
+						writeQueue[REQUESTID(r, b)].begin() + i);
+				writeQueue[REQUESTID(r, b)].insert(
+						writeQueue[REQUESTID(r, b)].begin() + head, request);
+				return true;
 			}
 		}
 	}
-	if (bankStates[r][b].currentBankState == RowActive
-			&& currentClockCycle >= bankStates[r][b].nextPrecharge) {
-		if (found == false) {
-			issuable = true;
-			busPacket = new BusPacket(PRECHARGE, 0, 0, 0, r, b, NULL,
-					dramsim_log);
-//			PRINT(
-//					"clock "<<currentClockCycle<<" issueWrite_A2 set PRE r["<<r<<"]b["<<b<<"] row["<<bankStates[r][b].openRowAddress<<"] ");
-//			busPacket->print();
-			vector<BusPacket *> &readqueue = readQueue.getCommandQueue(r, b);
-			for (unsigned i = 0; i < readqueue.size(); i++) {
-				//if there is something going to that bank and row, then we don't want to send a PRE
-				if (readqueue[i]->bank == b
-						&& readqueue[i]->row
-								== bankStates[r][b].openRowAddress) {
-					if (readqueue[i]->busPacketType != ACTIVATE) {
-						vector<BusPacket*>::iterator it = readqueue.begin() + i;
-						BusPacket *bpacket = new BusPacket(ACTIVATE,
-								readqueue[i]->physicalAddress,
-								readqueue[i]->column, readqueue[i]->row,
-								readqueue[i]->rank, readqueue[i]->bank, NULL,
-								dramsim_log, readqueue[i]->RIP);
-						readqueue.insert(it, bpacket);
-					}
-					break;
-				}
-			}
-			return true;
-		}
+	if ((found == false) && (bankStates[r][b].currentBankState == RowActive)) {
+		sendPRE[r][b] = true;
+		return false;
 	}
-//	PRINT("clock "<<currentClockCycle<<"issueWrite_A2 False ");
 	return issuable;
 }
 bool CancelWrite::writeCancel(unsigned r, unsigned b, BusPacket *&busPacket) { //if there is waiting read request, issue the request. write能否cancel，如果能，恢复现场？如果不能，什么都不做。
@@ -506,11 +613,9 @@ bool CancelWrite::writeCancel(unsigned r, unsigned b, BusPacket *&busPacket) { /
 	//if idle nothing to do , no write block the read
 }
 bool CancelWrite::issue(BusPacket **busPacket) {
-	unsigned lowmark = 0; //writequeue force write 的低阈值,write in [lowmark,CMD_QUEUE_DEPTH]的是需要强制写的，不能被cancel
 	if (rowBufferPolicy == OpenPage && queuingStructure == PerRankPerBank) {
 		bool sendingWR = false;
 		bool sendingRD = false;
-		bool sendingPRE = false;
 		unsigned startingRank = nextRank;
 		unsigned startingBank = nextBank;
 		do {
@@ -519,50 +624,62 @@ bool CancelWrite::issue(BusPacket **busPacket) {
 			vector<BusPacket *> &readqueue = readQueue.getCommandQueue(nextRank,
 					nextBank);
 			if (!(writequeue.empty() && readqueue.empty())) {
-				if (!writepriority[nextRank][nextBank]) { //then read priority
-					if (writequeue.size() >= 8) {
+				if ((writepriority[nextRank][nextBank] == false)
+						&& (writequeue.size() > 0)) { //then read priority
+					size_t head = 0;
+					for (head = 0; head < writequeue.size(); head++) {
+						if (writequeue[head]->valid != true)
+							break;
+					}
+					if (writequeue.size() - head >= 8) {
 						writepriority[nextRank][nextBank] = true;
-						writeBatchtail[nextRank][nextBank] = 8;
+						windowsize[nextRank][nextBank] = 8;
 					}
 				}
 				if (writepriority[nextRank][nextBank]) {
 					if (!WRITECANCEL) {
-						if (writeBatchtail[nextRank][nextBank] == 0) { //写完成以后，writepriority是false，保证这段时间是batch调度的。
+						if (windowsize[nextRank][nextBank] == 0) { //写完成以后，writepriority是false，保证这段时间是batch调度的。
 							writepriority[nextRank][nextBank] = false;
+							windowsize[nextRank][nextBank] = 0;
 						} else {
-							PRINT(
-									"write priority is true issue write currentClock is "<<currentClockCycle);
 //							sendingWR = issueWrite_PAS(nextRank, nextBank,
 //									*busPacket);
-							sendingWR = writeScheduling(nextRank, nextBank,
-									*busPacket);
+//							sendingWR = writeScheduling(nextRank, nextBank,
+//									*busPacket);
+							sendingWR = issueWrite_RP(nextRank, nextBank,
+																*busPacket);
 						}
 					} else {						//WriteCancle function
-						if (!readqueue.empty()
-								&& writequeue.size() <= lowmark) { //prioritized the ReadRequest and Cancel the on-going write
+						if (readqueue.size() > 0 && writequeue.size() <= 0) { //prioritized the ReadRequest and Cancel the on-going write
 							writepriority[nextRank][nextBank] = false;
 							coutcanceledwrite[nextRank][nextBank]++; //record the Count of Canceled Write
 							writecancel[nextRank][nextBank] = true;
 							sendingRD = writeCancel(nextRank, nextBank,
 									*busPacket); //恢复现场？主要是bank 和rank的状态
 						} else {
-							sendingWR = issueWrite_PAS(nextRank, nextBank,
-									*busPacket);
+//							sendingWR = issueWrite_PAS(nextRank, nextBank,
+//									*busPacket);
+//							sendingWR = writeScheduling(nextRank, nextBank,
+//									*busPacket);
+							sendingWR = issueWrite_RP(nextRank, nextBank,
+																							*busPacket);
 						}
 					}
 				} else {				//writepriority is false!
 					if (!readqueue.empty()) {
 //						writepriority[nextRank][nextBank] = false;
+//						PRINT(
+//								"writepriority false issue read currentClock is "<<currentClockCycle);
 						sendingRD = issueRead(nextRank, nextBank, *busPacket);
-					} else {
-						if (!writequeue.empty()) {
-							PRINT(
-									"write priority is false readqueue empty issue write currentClock is "<<currentClockCycle);
-							/*							sendingWR = issueWrite_PAS(nextRank, nextBank,
-							 *busPacket);*/
-							sendingWR = writeScheduling(nextRank, nextBank,
-									*busPacket);
-						}
+					} else if (!writequeue.empty()) {
+//						PRINT(
+//								"writepriority false readqueue empty issue write currentClock is "<<currentClockCycle);
+						/*							sendingWR = issueWrite_PAS(nextRank, nextBank,
+						 *busPacket);*/
+//						sendingWR = writeScheduling(nextRank, nextBank,
+//								*busPacket);
+						sendingWR = issueWrite_RP(nextRank, nextBank,
+																						*busPacket);
 					}
 				}
 				if (sendingWR || sendingRD) {
@@ -573,11 +690,62 @@ bool CancelWrite::issue(BusPacket **busPacket) {
 			}
 			readQueue.nextRankAndBank(nextRank, nextBank);
 		} while (!(startingRank == nextRank && startingBank == nextBank));
-
 		if ((!sendingWR) && (!sendingRD)) {
-			//查看可以关的bank， issue PRE; bank open但是没有相同的row可以发射。
-
-			return false;
+			//查看可以关的bank， issue PRE;
+			bool sendingPRE = false;
+			unsigned startingRank = nextRankPRE;
+			unsigned startingBank = nextBankPRE;
+			do // round robin over all ranks and banks
+			{
+				//check if bank is open
+				if (sendPRE[nextRankPRE][nextBankPRE] == true) {
+					if (currentClockCycle
+							>= bankStates[nextRankPRE][nextBankPRE].nextPrecharge) {
+						sendingPRE = true;
+						*busPacket = new BusPacket(PRECHARGE, 0, 0, 0,
+								nextRankPRE, nextBankPRE, NULL, dramsim_log);
+						sendPRE[nextRankPRE][nextBankPRE] = false;
+						if (writepriority[nextRankPRE][nextBankPRE]) {
+							vector<BusPacket *> &readqueue =
+									readQueue.getCommandQueue(nextRankPRE,
+											nextBankPRE);
+							for (unsigned i = 0; i < readqueue.size(); i++) {
+								//if there is something going to that bank and row, then we don't want to send a PRE
+								if (readqueue[i]->bank == nextBankPRE
+										&& readqueue[i]->row
+												== bankStates[nextRankPRE][nextBankPRE].openRowAddress) {
+									if (readqueue[i]->busPacketType
+											!= ACTIVATE) {
+										vector<BusPacket*>::iterator it =
+												readqueue.begin() + i;
+										BusPacket *bpacket = new BusPacket(
+												ACTIVATE,
+												readqueue[i]->physicalAddress,
+												readqueue[i]->column,
+												readqueue[i]->row,
+												readqueue[i]->rank,
+												readqueue[i]->bank, NULL,
+												dramsim_log, readqueue[i]->RIP);
+										readqueue.insert(it, bpacket);
+									}
+									break;
+								}
+							}
+						}
+						break;
+					}
+				}
+				readQueue.nextRankAndBank(nextRankPRE, nextBankPRE);
+			} while (!(startingRank == nextRankPRE
+					&& startingBank == nextBankPRE));
+			//if no PREs could be sent, just return false
+			if (!sendingPRE)
+				return false;
+			else {
+//				PRINTN("issue return clock "<<currentClockCycle<<" ");
+//				(*busPacket)->print();
+				return true;
+			}
 		}
 	}
 }

@@ -44,14 +44,16 @@ public:
 	uint64_t latency;				//写请求的延迟
 	double energy;					//写请求消耗的能量
 	TokenEntry();
-	TokenEntry(unsigned startCycle_, BusPacket* packet_, bool valid_,bool done_,
-			DataCounts* datacounts, uint64_t latency_, double energy_,vector<uint64_t> token_, ostream &dramsim_log_) :
-			startCycle(startCycle_), valid(valid_), done(done_),latency(latency_), energy(
-					energy_), dramsim_log(dramsim_log_){
+	TokenEntry(unsigned startCycle_, BusPacket* packet_, bool valid_,
+			bool done_, DataCounts* datacounts, uint64_t latency_,
+			double energy_, vector<uint64_t> token_, ostream &dramsim_log_) :
+			startCycle(startCycle_), valid(valid_), done(done_), latency(
+					latency_), energy(energy_), dramsim_log(dramsim_log_) {
 		dataCounts = new DataCounts();
 		packet = new BusPacket(packet_->busPacketType, packet_->physicalAddress,
 				packet_->column, packet_->row, packet_->rank, packet_->bank,
-				packet_->dataPacket, dramsim_log, packet_->RIP,latency,energy);
+				packet_->dataPacket, dramsim_log, packet_->RIP, latency,
+				energy);
 		requestToken = vector < uint64_t > (NUM_DEVICES, 0);
 		if (datacounts != NULL) {
 			for (size_t i = 0; i < NUM_DEVICES; i++) {
@@ -59,7 +61,7 @@ public:
 				dataCounts->setCounts[i] = datacounts->setCounts[i];
 				dataCounts->partresetCounts[i] = datacounts->partresetCounts[i];
 				dataCounts->partsetCounts[i] = datacounts->partsetCounts[i];
-				requestToken[i]=token_[i];
+				requestToken[i] = token_[i];
 			}
 		}
 //	friend ostream &operator<<(ostream &os, const TokenEntry &t) {
@@ -76,7 +78,7 @@ public:
 		 delete dataCounts;
 		 }*/
 	}
-	~TokenEntry(){
+	~TokenEntry() {
 		delete dataCounts;
 		delete packet;
 //		delete [] requestToken;
@@ -92,13 +94,15 @@ private:
 public:
 	TokenController(vector<vector<TokenEntry*> > &writequeue,
 			ostream &dramsim_log_);
-	bool addwriteRequest(vector<TokenEntry*>& writeBank, BusPacket *bspacket,bool &found);
+	bool addwriteRequest(vector<TokenEntry*>& writeBank, BusPacket *bspacket,
+			bool &found);
 	void print();
 	vector<vector<uint64_t> > latency;
 	vector<vector<double> > energy;
 	vector<double> tokenPool;		//per chip
 	vector<DataCounts*> dataCounts;	//per chip
 	vector<vector<TokenEntry*> > &tokenQueue;
+	vector<vector<TokenEntry*> > releasedwriteQueue;
 //	void set_RankBank(unsigned rankid_,unsigned bankid_){
 //		rank=rankid_;
 //		bank=bankid_;

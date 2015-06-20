@@ -44,10 +44,12 @@ public:
 	vector<vector<BusPacket*> > ongoingWrite;
 //	vector<vector<BusPacket*> > canceledWrite;
 	vector<vector<bool> > writepriority;
-	vector<vector<int> > writepriority;
+	vector<vector<unsigned> > windowsize;
+	vector<vector<bool> > sendPRE;
 	vector<vector<bool> > writecancel;
 	TokenController* tokenRank;
 	vector < uint64_t > zerowrite; //record the zero write, 记录修改data为零的请求。
+
 
 	unsigned nextRank;
 	unsigned nextBank;

@@ -169,7 +169,7 @@ void MemoryController::update() {
 			uint64_t addr = 0;
 			if (parentMemorySystem->WriteDataDone != NULL) {
 				if (cancelwriteQueue.tokenRank->release(i, j, addr)) {
-//							PRINT("rank "<<i<<" bank "<<j <<"clock "<<currentClockCycle<<" WRITE ACK is 0x"<<hex<<addr<<dec<<" then ongoing NULL");
+//							PRINT("rank "<<i<<" bank "<<j <<" clock "<<currentClockCycle<<" MC WRITE ACK is 0x"<<hex<<addr<<dec);
 					(*parentMemorySystem->WriteDataDone)(
 							parentMemorySystem->systemID, addr,
 							currentClockCycle);
@@ -696,8 +696,8 @@ void MemoryController::update() {
 			addedRdTrans++;
 			if (found) {
 				returnTransaction.push_back(trans);
-				PRINT(
-											"MC READ ACK same 0x"<<hex<<transaction->address<<dec);
+//				PRINT(
+//											"MC READ ACK same 0x"<<hex<<transaction->address<<dec);
 				totalReadsPerBank[SEQUENTIAL(
 						newTransactionRank, newTransactionBank)]++;
 			}
