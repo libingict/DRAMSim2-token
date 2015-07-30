@@ -43,6 +43,7 @@ public:
 	vector<uint64_t> requestToken;	//写请求所需的power token,迭代完成时更新
 	uint64_t latency;				//写请求的延迟
 	double energy;					//写请求消耗的能量
+	void print();
 	TokenEntry();
 	TokenEntry(unsigned startCycle_, BusPacket* packet_, bool valid_,
 			bool done_, DataCounts* datacounts, uint64_t latency_,
@@ -64,13 +65,13 @@ public:
 				requestToken[i] = token_[i];
 			}
 		}
-//	friend ostream &operator<<(ostream &os, const TokenEntry &t) {
-//		os << "Token [0x" << hex << t.physicalAddress << "] startCycle" << dec << t.startCycle << "] latency[" << t.latency<< "] energy[" << t.energy <<"] ";
-//		for (size_t i = 0; i < NUM_DEVICES; i++) {
-//			os << " chip["<<i<<"] requestToken["<<t.requestToken[i]<<"] ";
-//		}
-//		os<<endl;
-//		return os;
+//	void print(){
+//		PRINTN("Token [0x" << hex << t.physicalAddress << "] startCycle" << dec << t.startCycle << "] latency[" << t.latency<< "] energy[" << t.energy <<"] ");
+//				for (size_t i = 0; i < NUM_DEVICES; i++) {
+//					PRINTN( " chip["<<i<<"] requestToken["<<t.requestToken[i]<<"] ");
+//				}
+//				PRINT("");
+//				return;
 //	}
 		/*		~TokenEntry()
 		 {

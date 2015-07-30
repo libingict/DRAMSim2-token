@@ -120,6 +120,14 @@ bool USE_LOW_POWER;
 bool VIS_FILE_OUTPUT;
 bool WRITECANCEL;
 
+bool RP;
+bool PAS;
+bool Naive;
+bool FPB;
+bool SPA;
+//unsigned windowSize;
+
+
 bool VERIFICATION_OUTPUT;
 
 bool DEBUG_INI_READER=false;
@@ -207,6 +215,12 @@ static ConfigMap configMap[] =
 	DEFINE_BOOL_PARAM(VIS_FILE_OUTPUT,SYS_PARAM),
 	DEFINE_BOOL_PARAM(VERIFICATION_OUTPUT,SYS_PARAM),
 	DEFINE_BOOL_PARAM(WRITECANCEL,SYS_PARAM),
+	DEFINE_BOOL_PARAM(RP,SYS_PARAM),
+	DEFINE_BOOL_PARAM(PAS,SYS_PARAM),
+	DEFINE_BOOL_PARAM(Naive,SYS_PARAM),
+	DEFINE_BOOL_PARAM(FPB,SYS_PARAM),
+	DEFINE_BOOL_PARAM(SPA,SYS_PARAM),
+//	DEFINE_UINT_PARAM(windowSize,SYS_PARAM),
 	{"", NULL, UINT, SYS_PARAM, false} // tracer value to signify end of list; if you delete it, epic fail will result
 };
 

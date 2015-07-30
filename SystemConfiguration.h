@@ -73,6 +73,12 @@ extern bool USE_LOW_POWER;
 extern bool VIS_FILE_OUTPUT;
 
 extern bool WRITECANCEL;
+extern bool RP;
+extern bool PAS;
+extern bool Naive;
+extern bool FPB;
+extern bool SPA;
+extern unsigned windowSize;
 
 extern uint64_t TOTAL_STORAGE;
 extern unsigned NUM_BANKS;

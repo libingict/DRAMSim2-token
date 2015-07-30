@@ -972,6 +972,7 @@ void MemoryController::printStats(bool finalStats) {
 	vector<double> bandwidth = vector<double>(NUM_RANKS * NUM_BANKS, 0.0);
 
 	double totalBandwidth = 0.0;
+	double totalWriteBandwidth = 0.0;
 	for (size_t i = 0; i < NUM_RANKS; i++) {
 		for (size_t j = 0; j < NUM_BANKS; j++) {
 			bandwidth[SEQUENTIAL(i,j)] =
@@ -984,6 +985,9 @@ void MemoryController::printStats(bool finalStats) {
 							/ (float) (totalReadsPerBank[SEQUENTIAL(i,j)]))
 							* tCK;
 			totalBandwidth += bandwidth[SEQUENTIAL(i,j)];
+			totalWriteBandwidth += (double)totalWritesPerBank[SEQUENTIAL(i,j)]
+					* (double) bytesPerTransaction
+			/ (1024.0 * 1024.0 * 1024.0)/ secondsThisEpoch;
 			totalReadsPerRank[i] += totalReadsPerBank[SEQUENTIAL(i,j)];
 			totalWritesPerRank[i] += totalWritesPerBank[SEQUENTIAL(i,j)];
 
@@ -1017,7 +1021,7 @@ void MemoryController::printStats(bool finalStats) {
 			" ============== Printing Statistics [id:"<<parentMemorySystem->systemID<<"]==============");
 	PRINTN("   Total Return Transactions : " << totalTransactions);
 	PRINT(
-			" ("<<totalBytesTransferred <<" bytes) aggregate average bandwidth "<<totalBandwidth<<"GB/s");
+			" ("<<totalBytesTransferred <<" bytes) aggregate average bandwidth "<<totalBandwidth<<" GB/s writebandwidth "<<totalWriteBandwidth<<" GB/s");
 
 	double totalAggregateBandwidth = 0.0;
 	double totalAverageLatency = 0.0;
