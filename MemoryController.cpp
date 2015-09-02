@@ -83,8 +83,10 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_,
 	grandTotalBankAccesses = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
 	totalReadsPerBank = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
 	totalWritesPerBank = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
+	mergedWritesPerBank = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
 	totalReadsPerRank = vector < uint64_t > (NUM_RANKS, 0);
 	totalWritesPerRank = vector < uint64_t > (NUM_RANKS, 0);
+	mergedWritesPerRank = vector < uint64_t > (NUM_RANKS, 0);
 
 	totalActPerBank = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
 	totalPrePerBank = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
@@ -506,6 +508,8 @@ void MemoryController::update() {
 					poppedBusPacket->physicalAddress, 0);
 			writeEnergyperBank[SEQUENTIAL(rank,bank)] +=
 					poppedBusPacket->energy;
+			totalTransactions++;
+			totalWritesPerBank[SEQUENTIAL(rank,bank)]++;
 			bankStates[rank][bank].openRowAddress = poppedBusPacket->row;
 			bankStates[rank][bank].currentBankState = RowActive;
 			if (poppedBusPacket->busPacketType == ACTWR) {
@@ -542,10 +546,13 @@ void MemoryController::update() {
 					}
 				}
 			}
+
 			break;
 		case PREACTWR:
 			accessCount(rank, bank, poppedBusPacket->RIP,
 					poppedBusPacket->physicalAddress, 0);
+			totalTransactions++;
+			totalWritesPerBank[SEQUENTIAL(rank,bank)]++;
 			bankStates[rank][bank].openRowAddress = poppedBusPacket->row;
 			bankStates[rank][bank].currentBankState = RowActive;
 			writeEnergyperBank[SEQUENTIAL(rank,bank)] +=
@@ -680,7 +687,7 @@ void MemoryController::update() {
 
 		//if we have room, break up the transaction into the appropriate commands
 		//and add them to the command queue
-		DataPacket *datapakcet=new DataPacket(transaction->get_newdata(),
+		DataPacket *datapakcet = new DataPacket(transaction->get_newdata(),
 				transaction->get_oldata());
 		bool added = false;			//denote the trans added success.
 		bool found = false;	//found the same, then can recall the uplevel, this transaction finishes
@@ -689,11 +696,9 @@ void MemoryController::update() {
 				newTransactionColumn, newTransactionRow, newTransactionRank,
 				newTransactionBank, datapakcet, dramsim_log, transaction->RIP);
 		delete (datapakcet);
-//			PRINTN("Input command: ");command->print();PRINTN("\n");
 		if (transaction->transactionType == DATA_READ) {
 			Transaction *trans = new Transaction(*transaction);
 			added = cancelwriteQueue.addRequest(trans, command, found);
-			addedRdTrans++;
 			if (found) {
 				returnTransaction.push_back(trans);
 //				PRINT(
@@ -707,12 +712,20 @@ void MemoryController::update() {
 				break;
 			}
 		} else if (transaction->transactionType == DATA_WRITE) {
-			addedWrTrans++;
 			added = cancelwriteQueue.addRequest(transaction, command, found);
 			if (found) {
+				// 直接返回的write 数目
 				totalTransactions++;
 				totalWritesPerBank[SEQUENTIAL(
 						newTransactionRank, newTransactionBank)]++;
+				mergedWritesPerBank[SEQUENTIAL(
+						newTransactionRank, newTransactionBank)]++;
+//				writeDataToSend.push_back(
+//						new BusPacket(DATA, command->physicalAddress,
+//								command->column, command->row, command->rank,
+//								command->bank, command->dataPacket, dramsim_log,
+//								command->RIP));
+//				writeDataCountdown.push_back(WL);
 				if (parentMemorySystem->WriteDataDone != NULL) {
 //					PRINT(
 //							"MC WRITE ACK same 0x"<<hex<<transaction->address<<dec);
@@ -905,6 +918,11 @@ bool MemoryController::addTransaction(Transaction *trans) {
 		trans->timeAdded = currentClockCycle;
 		transactionQueue.push_back(trans);
 //		PRINT("("<<currentClockCycle<<")=="<< *trans);
+		if (transaction->transactionType == DATA_READ) {
+			addedRdTrans++;
+		}else if (transaction->transactionType == DATA_WRITE) {
+			addedWrTrans++;
+		}
 		return true;
 	} else {
 		return false;
@@ -947,14 +965,15 @@ void MemoryController::printStats(bool finalStats) {
 	unsigned bytesPerTransaction = (JEDEC_DATA_BUS_BITS * BL) / 8;
 	uint64_t totalBytesTransferred = totalTransactions * bytesPerTransaction;
 	double secondsThisEpoch = (double) cyclesElapsed * tCK * 1E-9;
-
+	uint64_t totalRead = 0;
+	uint64_t totalWrite = 0;
+	uint64_t totalmergedWrites = 0;
 // only per rank
 	vector<double> backgroundPower = vector<double>(NUM_RANKS, 0.0);
 	vector<double> burstPower = vector<double>(NUM_RANKS, 0.0);
 	vector<double> refreshPower = vector<double>(NUM_RANKS, 0.0);
 	vector<double> actprePower = vector<double>(NUM_RANKS, 0.0);
 	vector<double> averagePower = vector<double>(NUM_RANKS, 0.0);
-
 	vector < uint64_t > canceledwriteperRank = vector < uint64_t
 			> (NUM_RANKS, 0);
 
@@ -970,6 +989,7 @@ void MemoryController::printStats(bool finalStats) {
 			0.0);
 
 	vector<double> bandwidth = vector<double>(NUM_RANKS * NUM_BANKS, 0.0);
+	vector<double> writebandwidth = vector<double>(NUM_RANKS * NUM_BANKS, 0.0);
 
 	double totalBandwidth = 0.0;
 	double totalWriteBandwidth = 0.0;
@@ -985,12 +1005,14 @@ void MemoryController::printStats(bool finalStats) {
 							/ (float) (totalReadsPerBank[SEQUENTIAL(i,j)]))
 							* tCK;
 			totalBandwidth += bandwidth[SEQUENTIAL(i,j)];
-			totalWriteBandwidth += (double)totalWritesPerBank[SEQUENTIAL(i,j)]
-					* (double) bytesPerTransaction
-			/ (1024.0 * 1024.0 * 1024.0)/ secondsThisEpoch;
+			writebandwidth[SEQUENTIAL(i,j)] +=
+					(double) totalWritesPerBank[SEQUENTIAL(i,j)]
+							* (double) bytesPerTransaction
+							/ (1024.0 * 1024.0 * 1024.0) / secondsThisEpoch;
+			totalWriteBandwidth += writebandwidth[SEQUENTIAL(i,j)];
 			totalReadsPerRank[i] += totalReadsPerBank[SEQUENTIAL(i,j)];
 			totalWritesPerRank[i] += totalWritesPerBank[SEQUENTIAL(i,j)];
-
+			mergedWritesPerRank[i] += mergedWritesPerBank[SEQUENTIAL(i,j)];
 			totalActPerRank[i] += totalActPerBank[SEQUENTIAL(i,j)];
 			totalPrePerRank[i] += totalPrePerBank[SEQUENTIAL(i,j)];
 
@@ -1005,6 +1027,9 @@ void MemoryController::printStats(bool finalStats) {
 			readEnergy[i] += readEnergyperBank[SEQUENTIAL(i,j)];
 			writeEnergy[i] += writeEnergyperBank[SEQUENTIAL(i,j)];
 		}
+		totalRead += totalReadsPerRank[i];
+		totalWrite += totalWritesPerRank[i];
+		totalmergedWrites += mergedWritesPerRank[i];
 	}
 #ifdef LOG_OUTPUT
 	dramsim_log.precision(3);
@@ -1015,11 +1040,18 @@ void MemoryController::printStats(bool finalStats) {
 #endif
 //	commandQueue.print();
 	PRINT(" =======================================================");
-	PRINT(" READ TRANS "<< addedRdTrans <<" WRITE TRANS " << addedWrTrans);
-
+	if (PAS) {
+		PRINT("     The count of algorithm: "<<cancelwriteQueue.countAlg);
+	}
+	PRINTN(
+			"     priorityWrites "<<cancelwriteQueue.priorityWrites<<" falseWrites "<<cancelwriteQueue.falseWrites<<" ");
+	cancelwriteQueue.printburstCycles();
+	PRINT("     READ TRANS "<< addedRdTrans <<" WRITE TRANS " << addedWrTrans);
+	PRINT(
+			"     mergedWriteRatio "<< (double)totalmergedWrites/(double)totalWrite <<" Write " << totalWrite<<" totalmergedWrites "<< totalmergedWrites<<" FoundinWQReads "<<cancelwriteQueue.readFounds);
 	PRINT(
 			" ============== Printing Statistics [id:"<<parentMemorySystem->systemID<<"]==============");
-	PRINTN("   Total Return Transactions : " << totalTransactions);
+	PRINTN("   Total Return Transactions " << totalTransactions);
 	PRINT(
 			" ("<<totalBytesTransferred <<" bytes) aggregate average bandwidth "<<totalBandwidth<<" GB/s writebandwidth "<<totalWriteBandwidth<<" GB/s");
 
@@ -1032,14 +1064,15 @@ void MemoryController::printStats(bool finalStats) {
 		PRINT(" ("<<totalReadsPerRank[r] * bytesPerTransaction<<" bytes)");
 		PRINTN("        -Writes : " << totalWritesPerRank[r]);
 		PRINT(" ("<<totalWritesPerRank[r] * bytesPerTransaction<<" bytes)");
-		PRINTN("        -Active  : " << totalActPerRank[r]);
-		PRINTN("        -Precharge  : " << totalPrePerRank[r]);
-		PRINT("        -CanceledWrites : " << canceledwriteperRank[r]);
+//		PRINTN("        -Active  : " << totalActPerRank[r]);
+//		PRINTN("        -Precharge  : " << totalPrePerRank[r]);
+//		PRINT("        -CanceledWrites : " << canceledwriteperRank[r]);
 
 		for (size_t j = 0; j < NUM_BANKS; j++) {
 			PRINT(
 					"        -Bandwidth / Latency  (Bank " <<j<<"): " <<bandwidth[SEQUENTIAL(r,j)] << " GB/s\t\t" <<averageLatency[SEQUENTIAL(r,j)] << " ns");
-			totalAverageLatency=totalAverageLatency+averageLatency[SEQUENTIAL(r,j)];
+			totalAverageLatency = totalAverageLatency
+					+ averageLatency[SEQUENTIAL(r,j)];
 
 		}
 		/*		for (size_t b = 0; b < NUM_BANKS; b++) {
@@ -1071,10 +1104,10 @@ void MemoryController::printStats(bool finalStats) {
 		PRINT("   Average Power (watts)     : " << averagePower[r]);
 		PRINT("     -Read   (mwatts)     : " << readPower[r]);
 		PRINT("     -Write  (mwatts)     : " << writePower[r]);
-		PRINT("     -Background (watts)     : " << backgroundPower[r]);
-		PRINT("     -Act/Pre    (watts)     : " << actprePower[r]);
-		PRINT("     -Burst      (watts)     : " << burstPower[r]);
-		PRINT("     -Refresh    (watts)     : " << refreshPower[r]);
+//		PRINT("     -Background (watts)     : " << backgroundPower[r]);
+//		PRINT("     -Act/Pre    (watts)     : " << actprePower[r]);
+//		PRINT("     -Burst      (watts)     : " << burstPower[r]);
+//		PRINT("     -Refresh    (watts)     : " << refreshPower[r]);
 
 		PRINT("     -ReadEnergy   (pJ)     : " << readEnergy[r]);
 		PRINT("     -WriteEnergy  (pJ)     : " << writeEnergy[r]);
@@ -1107,7 +1140,8 @@ void MemoryController::printStats(bool finalStats) {
 							myChannel, r) << totalRankBandwidth / NUM_RANKS;
 		}
 	}
-	PRINT("     Total averageLatency : "<<totalAverageLatency/(NUM_RANKS*NUM_BANKS));
+	PRINT(
+			" averageLatency : "<<totalAverageLatency/(NUM_RANKS*NUM_BANKS)<<" ns");
 	if (VIS_FILE_OUTPUT) {
 		csvOut << CSVWriter::IndexedName("Aggregate_Bandwidth", myChannel)
 				<< totalAggregateBandwidth;
@@ -1116,36 +1150,39 @@ void MemoryController::printStats(bool finalStats) {
 	}
 
 // only print the latency histogram at the end of the simulation since it clogs the output too much to print every epoch
-	if (finalStats) {
-//		PRINT(" ---  Latency list ("<<latencies.size()<<")");
-//		PRINT("       [lat] : #");
-//		if (VIS_FILE_OUTPUT) {
-//			csvOut.getOutputStream() << "!!HISTOGRAM_DATA" << endl;
-//		}
-//
-//		map<unsigned, unsigned>::iterator it; //
-//		for (it = latencies.begin(); it != latencies.end(); it++) {
-//			PRINT(
-//					"       ["<< it->first <<"-"<<it->first+(HISTOGRAM_BIN_SIZE-1)<<"] : "<< it->second);
-//			if (VIS_FILE_OUTPUT) {
-//				csvOut.getOutputStream() << it->first << "=" << it->second
-//						<< endl;
-//			}
-//		}
-		if (currentClockCycle % EPOCH_LENGTH == 0) {
-			PRINT(" --- Grand Total Bank usage list");
-			for (size_t i = 0; i < NUM_RANKS; i++) {
-				PRINT("Rank "<<i<<":");
-				for (size_t j = 0; j < NUM_BANKS; j++) {
-					PRINT(
-							"  b"<<j<<": "<<grandTotalBankAccesses[SEQUENTIAL(i,j)]);
-				}
-			}
-		}
+	/*if (finalStats) {
+	 //		PRINT(" ---  Latency list ("<<latencies.size()<<")");
+	 //		PRINT("       [lat] : #");
+	 //		if (VIS_FILE_OUTPUT) {
+	 //			csvOut.getOutputStream() << "!!HISTOGRAM_DATA" << endl;
+	 //		}
+	 //
+	 //		map<unsigned, unsigned>::iterator it; //
+	 //		for (it = latencies.begin(); it != latencies.end(); it++) {
+	 //			PRINT(
+	 //					"       ["<< it->first <<"-"<<it->first+(HISTOGRAM_BIN_SIZE-1)<<"] : "<< it->second);
+	 //			if (VIS_FILE_OUTPUT) {
+	 //				csvOut.getOutputStream() << it->first << "=" << it->second
+	 //						<< endl;
+	 //			}
+	 //		}
+	 if (currentClockCycle % EPOCH_LENGTH == 0) {
+	 PRINT(" --- Grand Total Bank usage list");
+	 for (size_t i = 0; i < NUM_RANKS; i++) {
+	 PRINT("Rank "<<i<<":");
+	 for (size_t j = 0; j < NUM_BANKS; j++) {
+	 PRINT(
+	 "  b"<<j<<": "<<grandTotalBankAccesses[SEQUENTIAL(i,j)]);
+	 }
+	 }
+	 }
 
-	}
+	 }*/
 	PRINT(
 			endl<< " == Pending Transactions : "<<pendingReadTransactions.size()<<" ("<<currentClockCycle<<")==");
+	if (!nolimit) {
+		cancelwriteQueue.printavailableToken();
+	}
 #ifdef LOG_OUTPUT
 	dramsim_log.flush();
 #endif

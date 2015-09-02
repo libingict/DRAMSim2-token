@@ -40,7 +40,9 @@ public:
 	bool writeCancel(unsigned r, unsigned b, BusPacket *&busPacket);
 	void update();
 	bool isEmpty(unsigned rank);
-//	void getToken(BusPacket *buspacket);
+	void updateavailableToken();
+	void printavailableToken();
+	void printburstCycles();
 	vector<vector<BusPacket*> > ongoingWrite;
 //	vector<vector<BusPacket*> > canceledWrite;
 	vector<vector<bool> > writepriority;
@@ -48,9 +50,19 @@ public:
 	vector<vector<bool> > sendPRE;
 	vector<vector<bool> > writecancel;
 	TokenController* tokenRank;
-	vector < uint64_t > zerowrite; //record the zero write, 记录修改data为零的请求。
-
-
+	vector<uint64_t> zerowrite; //record the zero write, 记录修改data为零的请求。
+	vector<uint64_t> readfoundReturn;
+	vector<vector<uint64_t> > writeburstCycle;
+	uint64_t	readFounds;
+	//for calculate the token issue
+	vector<double> totalToken;
+	vector<double> maxToken;
+	vector<double> averageToken;
+	vector<vector<double> > maxtokenList;
+	vector<vector<double> > avgtokenList;
+	int countAlg;
+	uint64_t priorityWrites;
+	uint64_t falseWrites;
 	unsigned nextRank;
 	unsigned nextBank;
 	unsigned nextRankPRE;

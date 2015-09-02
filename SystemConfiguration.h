@@ -78,8 +78,11 @@ extern bool PAS;
 extern bool Naive;
 extern bool FPB;
 extern bool SPA;
+extern bool nolimit;
+extern bool SPAIdeal;
 extern unsigned windowSize;
-
+extern unsigned INTERVAL;
+extern unsigned ratio;
 extern uint64_t TOTAL_STORAGE;
 extern unsigned NUM_BANKS;
 extern unsigned NUM_RANKS;
@@ -131,8 +134,8 @@ extern unsigned NUM_DEVICES;
 
 //#define RESETLatency (WL+BL/2+150/tCK)  //write to read delay bank
 //#define SETLatency (unsigned)(WL+BL/2+250/tCK))	//write to read delay bank
-#define RESETToken 2
-#define SETToken 1
+#define RESETToken (nolimit?0:2)
+#define SETToken (nolimit?0:1)
 
 /*
 #define Partial_TO_PRE_DELAY (unsigned)(WRITE_TO_PRE_DELAY/Ratio)

@@ -43,7 +43,6 @@ public:
 	vector<uint64_t> requestToken;	//写请求所需的power token,迭代完成时更新
 	uint64_t latency;				//写请求的延迟
 	double energy;					//写请求消耗的能量
-	void print();
 	TokenEntry();
 	TokenEntry(unsigned startCycle_, BusPacket* packet_, bool valid_,
 			bool done_, DataCounts* datacounts, uint64_t latency_,
@@ -91,7 +90,7 @@ private:
 	ostream &dramsim_log;
 	void updateReclaim(TokenEntry* tokenEntry);
 	void updateReallocate(TokenEntry* tokenEntry);
-	unsigned ratio;
+//	unsigned ratio;
 public:
 	TokenController(vector<vector<TokenEntry*> > &writequeue,
 			ostream &dramsim_log_);
@@ -115,6 +114,8 @@ public:
 	void issueChangestate(TokenEntry*& writerequest);
 	virtual ~TokenController();
 	void update();
+	void update_nolimit();
+	void update_SPAIdeal();
 	void update_Naive();
 	void update_FPB();
 	void update_SPA(); //SET scheme;

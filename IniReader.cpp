@@ -125,8 +125,11 @@ bool PAS;
 bool Naive;
 bool FPB;
 bool SPA;
-//unsigned windowSize;
-
+bool nolimit;
+bool SPAIdeal;
+unsigned windowSize;
+unsigned INTERVAL;
+unsigned ratio;
 
 bool VERIFICATION_OUTPUT;
 
@@ -188,6 +191,7 @@ static ConfigMap configMap[] =
 	DEFINE_DOUBLE_PARAM(readEnergyperCell,DEV_PARAM),//pj
 	DEFINE_DOUBLE_PARAM(setEnergyperCell,DEV_PARAM),//pj
 	DEFINE_DOUBLE_PARAM(resetEnergyperCell,DEV_PARAM),//pj
+		DEFINE_UINT_PARAM(INTERVAL,DEV_PARAM),
 	DEFINE_UINT_PARAM(NUM_CHANS,SYS_PARAM),
 	DEFINE_UINT_PARAM(JEDEC_DATA_BUS_BITS,SYS_PARAM),
 
@@ -220,7 +224,10 @@ static ConfigMap configMap[] =
 	DEFINE_BOOL_PARAM(Naive,SYS_PARAM),
 	DEFINE_BOOL_PARAM(FPB,SYS_PARAM),
 	DEFINE_BOOL_PARAM(SPA,SYS_PARAM),
-//	DEFINE_UINT_PARAM(windowSize,SYS_PARAM),
+	DEFINE_BOOL_PARAM(nolimit,SYS_PARAM),
+	DEFINE_BOOL_PARAM(SPAIdeal,SYS_PARAM),
+	DEFINE_UINT_PARAM(windowSize,SYS_PARAM),
+	DEFINE_UINT_PARAM(ratio,SYS_PARAM),
 	{"", NULL, UINT, SYS_PARAM, false} // tracer value to signify end of list; if you delete it, epic fail will result
 };
 

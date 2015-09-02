@@ -70,7 +70,8 @@ public:
 	void updatePSQueue();
 	void printStats(bool finalStats = false);
 	void resetStats();
-	void accessCount(unsigned rank, unsigned bank, uint64_t rip, uint64_t addr, unsigned type);
+	void accessCount(unsigned rank, unsigned bank, uint64_t rip, uint64_t addr,
+			unsigned type);
 	void printAccesscount(unsigned rank, unsigned bank);
 	//fields
 	vector<Transaction *> transactionQueue;
@@ -111,20 +112,21 @@ private:
 	vector<uint64_t> grandTotalBankAccesses;
 	vector<uint64_t> totalReadsPerBank;
 	vector<uint64_t> totalWritesPerBank;
+	vector<uint64_t> mergedWritesPerBank;
 	vector<vector<RipAccesscount*> > ripaccessPerBank;
 	vector<vector<RipAccesscount*> > addraccessPerBank;
 	vector<uint64_t> totalReadsPerRank;
 	vector<uint64_t> totalWritesPerRank;
-    vector<uint64_t> totalActPerBank;
-    vector<uint64_t> totalPrePerBank;
+	vector<uint64_t> mergedWritesPerRank;
+	vector<uint64_t> totalActPerBank;
+	vector<uint64_t> totalPrePerBank;
 
-    vector<uint64_t> totalActPerRank;
-    vector<uint64_t> totalPrePerRank;
+	vector<uint64_t> totalActPerRank;
+	vector<uint64_t> totalPrePerRank;
 
 	vector<uint64_t> totalEpochLatency;
 
-
-	vector<double> readEnergyperBank ;
+	vector<double> readEnergyperBank;
 	vector<double> writeEnergyperBank;
 
 	unsigned channelBitWidth;
