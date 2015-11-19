@@ -12,12 +12,6 @@
 #include "SystemConfiguration.h"
 #include"BusPacket.h"
 
-/*
- #define RESETLatency (WL+BL/2+150/tCK)
- #define SETLatency (WL+BL/2+250/tCK)
- #define RESETToken 2
- #define SETToken 1
- */
 using namespace std;
 namespace DRAMSim {
 class DataCounts {
@@ -41,12 +35,15 @@ public:
 	DataCounts* dataCounts;			//per chip上的数据分布
 	BusPacket* packet;
 	vector<uint64_t> requestToken;	//写请求所需的power token,迭代完成时更新
+	vector<double> tokenUtility;	//写请求所需的power token,迭代完成时更新
 	uint64_t latency;				//写请求的延迟
 	double energy;					//写请求消耗的能量
+	uint64_t acturalToken;//写请求实际消耗的token数目
+	uint64_t appliedToken;//写请求申请的token数目
 	TokenEntry();
 	TokenEntry(unsigned startCycle_, BusPacket* packet_, bool valid_,
 			bool done_, DataCounts* datacounts, uint64_t latency_,
-			double energy_, vector<uint64_t> token_, ostream &dramsim_log_) :
+			double energy_, vector<uint64_t> token_, vector<double> utility_, ostream &dramsim_log_) :
 			startCycle(startCycle_), valid(valid_), done(done_), latency(
 					latency_), energy(energy_), dramsim_log(dramsim_log_) {
 		dataCounts = new DataCounts();
@@ -55,6 +52,7 @@ public:
 				packet_->dataPacket, dramsim_log, packet_->RIP, latency,
 				energy);
 		requestToken = vector < uint64_t > (NUM_DEVICES, 0);
+		tokenUtility=vector < double > (NUM_DEVICES, 0.0);
 		if (datacounts != NULL) {
 			for (size_t i = 0; i < NUM_DEVICES; i++) {
 				dataCounts->resetCounts[i] = datacounts->resetCounts[i];
@@ -62,6 +60,7 @@ public:
 				dataCounts->partresetCounts[i] = datacounts->partresetCounts[i];
 				dataCounts->partsetCounts[i] = datacounts->partsetCounts[i];
 				requestToken[i] = token_[i];
+				tokenUtility[i]=utility_[i];
 			}
 		}
 //	void print(){
@@ -103,6 +102,8 @@ public:
 	vector<DataCounts*> dataCounts;	//per chip
 	vector<vector<TokenEntry*> > &tokenQueue;
 	vector<vector<TokenEntry*> > releasedwriteQueue;
+	vector<double> tokenUtilityWrites; //per chip
+	uint64_t utilitywritesNum;
 //	void set_RankBank(unsigned rankid_,unsigned bankid_){
 //		rank=rankid_;
 //		bank=bankid_;
@@ -119,6 +120,7 @@ public:
 	void update_Naive();
 	void update_FPB();
 	void update_SPA(); //SET scheme;
+	void powerUtilization(TokenEntry *writerequest);
 	bool release(size_t rank, size_t bank, uint64_t &addr);
 
 //	bool release(unsigned rank, unsigned bank,); //delete the finished write

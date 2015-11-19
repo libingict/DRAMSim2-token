@@ -83,7 +83,6 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_,
 	grandTotalBankAccesses = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
 	totalReadsPerBank = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
 	totalWritesPerBank = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
-	mergedWritesPerBank = vector < uint64_t > (NUM_RANKS * NUM_BANKS, 0);
 	totalReadsPerRank = vector < uint64_t > (NUM_RANKS, 0);
 	totalWritesPerRank = vector < uint64_t > (NUM_RANKS, 0);
 	mergedWritesPerRank = vector < uint64_t > (NUM_RANKS, 0);
@@ -169,14 +168,15 @@ void MemoryController::update() {
 		for (size_t j = 0; j < NUM_BANKS; j++) {
 //			if (bankStates[i][j].lastCommand == WRITE) {
 			uint64_t addr = 0;
-			if (parentMemorySystem->WriteDataDone != NULL) {
-				if (cancelwriteQueue.tokenRank->release(i, j, addr)) {
-//							PRINT("rank "<<i<<" bank "<<j <<" clock "<<currentClockCycle<<" MC WRITE ACK is 0x"<<hex<<addr<<dec);
-					(*parentMemorySystem->WriteDataDone)(
-							parentMemorySystem->systemID, addr,
-							currentClockCycle);
-				}
-			}
+//			if (parentMemorySystem->WriteDataDone != NULL) {
+//				if (cancelwriteQueue.tokenRank->release(i, j, addr)) {
+////							PRINT("rank "<<i<<" bank "<<j <<" clock "<<currentClockCycle<<" MC WRITE ACK is 0x"<<hex<<addr<<dec);
+//					(*parentMemorySystem->WriteDataDone)(
+//							parentMemorySystem->systemID, addr,
+//							currentClockCycle);
+//				}
+//			}
+			cancelwriteQueue.tokenRank->release(i, j, addr);
 			if (bankStates[i][j].stateChangeCountdown > 0) {
 				//decrement counters
 				bankStates[i][j].stateChangeCountdown--;
@@ -718,14 +718,6 @@ void MemoryController::update() {
 				totalTransactions++;
 				totalWritesPerBank[SEQUENTIAL(
 						newTransactionRank, newTransactionBank)]++;
-				mergedWritesPerBank[SEQUENTIAL(
-						newTransactionRank, newTransactionBank)]++;
-//				writeDataToSend.push_back(
-//						new BusPacket(DATA, command->physicalAddress,
-//								command->column, command->row, command->rank,
-//								command->bank, command->dataPacket, dramsim_log,
-//								command->RIP));
-//				writeDataCountdown.push_back(WL);
 				if (parentMemorySystem->WriteDataDone != NULL) {
 //					PRINT(
 //							"MC WRITE ACK same 0x"<<hex<<transaction->address<<dec);
@@ -737,6 +729,14 @@ void MemoryController::update() {
 			}
 			if (added) {
 				//PRINT("added Transaction Write "<<*transaction);
+				if (found!=true && parentMemorySystem->WriteDataDone != NULL) {
+//					PRINT(
+//							"MC WRITE ACK same 0x"<<hex<<transaction->address<<dec);
+					(*parentMemorySystem->WriteDataDone)(
+							parentMemorySystem->systemID, transaction->address,
+							currentClockCycle);
+
+				}
 				delete transaction;
 				transactionQueue.erase(transactionQueue.begin() + i);
 				break;
@@ -918,9 +918,9 @@ bool MemoryController::addTransaction(Transaction *trans) {
 		trans->timeAdded = currentClockCycle;
 		transactionQueue.push_back(trans);
 //		PRINT("("<<currentClockCycle<<")=="<< *trans);
-		if (transaction->transactionType == DATA_READ) {
+		if (trans->transactionType == DATA_READ) {
 			addedRdTrans++;
-		}else if (transaction->transactionType == DATA_WRITE) {
+		} else if (trans->transactionType == DATA_WRITE) {
 			addedWrTrans++;
 		}
 		return true;
@@ -968,12 +968,15 @@ void MemoryController::printStats(bool finalStats) {
 	uint64_t totalRead = 0;
 	uint64_t totalWrite = 0;
 	uint64_t totalmergedWrites = 0;
+	uint64_t totalzeroWrites = 0;
 // only per rank
 	vector<double> backgroundPower = vector<double>(NUM_RANKS, 0.0);
 	vector<double> burstPower = vector<double>(NUM_RANKS, 0.0);
 	vector<double> refreshPower = vector<double>(NUM_RANKS, 0.0);
 	vector<double> actprePower = vector<double>(NUM_RANKS, 0.0);
 	vector<double> averagePower = vector<double>(NUM_RANKS, 0.0);
+
+	vector < uint64_t > zeroWritesPerRank = vector < uint64_t > (NUM_RANKS, 0);
 	vector < uint64_t > canceledwriteperRank = vector < uint64_t
 			> (NUM_RANKS, 0);
 
@@ -1012,7 +1015,9 @@ void MemoryController::printStats(bool finalStats) {
 			totalWriteBandwidth += writebandwidth[SEQUENTIAL(i,j)];
 			totalReadsPerRank[i] += totalReadsPerBank[SEQUENTIAL(i,j)];
 			totalWritesPerRank[i] += totalWritesPerBank[SEQUENTIAL(i,j)];
-			mergedWritesPerRank[i] += mergedWritesPerBank[SEQUENTIAL(i,j)];
+			mergedWritesPerRank[i] +=
+					cancelwriteQueue.mergedWritesPerBank[SEQUENTIAL(i,j)];
+			zeroWritesPerRank[i] +=cancelwriteQueue.zerowrite[SEQUENTIAL(i,j)];
 			totalActPerRank[i] += totalActPerBank[SEQUENTIAL(i,j)];
 			totalPrePerRank[i] += totalPrePerBank[SEQUENTIAL(i,j)];
 
@@ -1030,6 +1035,7 @@ void MemoryController::printStats(bool finalStats) {
 		totalRead += totalReadsPerRank[i];
 		totalWrite += totalWritesPerRank[i];
 		totalmergedWrites += mergedWritesPerRank[i];
+		totalzeroWrites+=zeroWritesPerRank[i];
 	}
 #ifdef LOG_OUTPUT
 	dramsim_log.precision(3);
@@ -1043,12 +1049,14 @@ void MemoryController::printStats(bool finalStats) {
 	if (PAS) {
 		PRINT("     The count of algorithm: "<<cancelwriteQueue.countAlg);
 	}
-	PRINTN(
-			"     priorityWrites "<<cancelwriteQueue.priorityWrites<<" falseWrites "<<cancelwriteQueue.falseWrites<<" ");
-	cancelwriteQueue.printburstCycles();
-	PRINT("     READ TRANS "<< addedRdTrans <<" WRITE TRANS " << addedWrTrans);
+	if (!nolimit) {
+		cancelwriteQueue.printburstCycles();
+		cancelwriteQueue.printavailableToken();
+		cancelwriteQueue.printavgTokenUtility();
+	}
+	PRINT("     READ TRANS "<< addedRdTrans <<" WRITE TRANS " << addedWrTrans<<" totalmergedWrites "<< totalmergedWrites<<" totalzeroWrites "<< totalzeroWrites);
 	PRINT(
-			"     mergedWriteRatio "<< (double)totalmergedWrites/(double)totalWrite <<" Write " << totalWrite<<" totalmergedWrites "<< totalmergedWrites<<" FoundinWQReads "<<cancelwriteQueue.readFounds);
+			"     mergedWriteRatio "<< (double)totalmergedWrites/(double)totalWrite <<" Write " << totalWrite<<" FoundinWQReads "<<cancelwriteQueue.readFounds);
 	PRINT(
 			" ============== Printing Statistics [id:"<<parentMemorySystem->systemID<<"]==============");
 	PRINTN("   Total Return Transactions " << totalTransactions);
@@ -1180,9 +1188,8 @@ void MemoryController::printStats(bool finalStats) {
 	 }*/
 	PRINT(
 			endl<< " == Pending Transactions : "<<pendingReadTransactions.size()<<" ("<<currentClockCycle<<")==");
-	if (!nolimit) {
+	if (!nolimit)
 		cancelwriteQueue.printavailableToken();
-	}
 #ifdef LOG_OUTPUT
 	dramsim_log.flush();
 #endif

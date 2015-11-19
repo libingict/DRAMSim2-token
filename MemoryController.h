@@ -112,7 +112,6 @@ private:
 	vector<uint64_t> grandTotalBankAccesses;
 	vector<uint64_t> totalReadsPerBank;
 	vector<uint64_t> totalWritesPerBank;
-	vector<uint64_t> mergedWritesPerBank;
 	vector<vector<RipAccesscount*> > ripaccessPerBank;
 	vector<vector<RipAccesscount*> > addraccessPerBank;
 	vector<uint64_t> totalReadsPerRank;
